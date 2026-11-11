@@ -1,6 +1,10 @@
 import os
 import subprocess
+import time
 
+import cryptography.hazmat.primitives.asymmetric.rsa
+import httpx
+import jwt
 import pytest
 
 # Makes asyncio report slow callbacks, e.g. blocking calls in async code.
@@ -56,3 +60,71 @@ def remote(tmp_path):
     path = tmp_path / "remote"
     path.mkdir()
     return Remote(path)
+
+
+class TokenIssuer:
+    """An OIDC issuer serving discovery and JWKS through an httpx mock transport."""
+
+    def __init__(self, url, kid="key-1"):
+        self.url = url
+        self.kid = kid
+        self.private_key = (
+            cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key(
+                public_exponent=65537, key_size=2048
+            )
+        )
+        self.requests = []
+
+    def jwks(self):
+        jwk = jwt.algorithms.RSAAlgorithm.to_jwk(
+            self.private_key.public_key(), as_dict=True
+        )
+        return {"keys": [{**jwk, "kid": self.kid, "use": "sig"}]}
+
+    def handle(self, request):
+        self.requests.append(str(request.url))
+        if str(request.url) == f"{self.url}/.well-known/openid-configuration":
+            return httpx.Response(
+                200, json={"issuer": self.url, "jwks_uri": f"{self.url}/keys"}
+            )
+        if str(request.url) == f"{self.url}/keys":
+            return httpx.Response(200, json=self.jwks())
+        return None
+
+    def token(self, audience, subject="user", expires_in=300, kid=None, **claims):
+        now = int(time.time())
+        payload = {
+            "iss": self.url,
+            "aud": audience,
+            "sub": subject,
+            "iat": now,
+            "exp": now + expires_in,
+            **claims,
+        }
+        return jwt.encode(
+            payload,
+            self.private_key,
+            algorithm="RS256",
+            headers={"kid": kid or self.kid},
+        )
+
+
+def mock_http_client(*issuers):
+    def handler(request):
+        for issuer in issuers:
+            response = issuer.handle(request)
+            if response is not None:
+                return response
+        return httpx.Response(404)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+@pytest.fixture
+def jenkins():
+    return TokenIssuer("https://jenkins.example/oidc")
+
+
+@pytest.fixture
+def entra():
+    return TokenIssuer("https://login.example/tenant/v2.0")
