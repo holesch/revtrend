@@ -1,10 +1,13 @@
 import asyncio
 import dataclasses
+import json
 import logging
+import re
 import time
 import typing
 
 import fastapi
+import fastapi.responses
 import pydantic
 
 import revtrend.auth as auth
@@ -18,13 +21,16 @@ log = logging.getLogger(__name__)
 router = fastapi.APIRouter()
 
 FETCH_TIMEOUT = 60
+ON_DEMAND_FETCH_INTERVAL = 30
+METRIC_RE = re.compile(r"^[a-z0-9_.]+$")
+LABEL_KEY_RE = re.compile(r"^[a-z0-9_]+$")
 
 Sha = typing.Annotated[str, pydantic.StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 MetricName = typing.Annotated[
-    str, pydantic.StringConstraints(pattern=r"^[a-z0-9_.]+$", max_length=128)
+    str, pydantic.StringConstraints(pattern=METRIC_RE.pattern, max_length=128)
 ]
 LabelKey = typing.Annotated[
-    str, pydantic.StringConstraints(pattern=r"^[a-z0-9_]+$", max_length=64)
+    str, pydantic.StringConstraints(pattern=LABEL_KEY_RE.pattern, max_length=64)
 ]
 LabelValue = typing.Annotated[
     str, pydantic.StringConstraints(min_length=1, max_length=256)
@@ -89,6 +95,9 @@ PrincipalDep = typing.Annotated[auth.Principal, fastapi.Depends(get_principal)]
 ReaderDep = typing.Annotated[Access, fastapi.Depends(project_access("reader"))]
 WriterDep = typing.Annotated[Access, fastapi.Depends(project_access("writer"))]
 AdminDep = typing.Annotated[Access, fastapi.Depends(project_access("admin"))]
+Aggregation = typing.Literal[tuple(store.AGGREGATIONS)]
+MetricsQuery = typing.Annotated[list[str], fastapi.Query(alias="metric")]
+LabelsQuery = typing.Annotated[list[str], fastapi.Query()]
 
 
 @router.get("/healthz")
@@ -174,3 +183,113 @@ async def require_commit(m, sha):
         raise fastapi.HTTPException(503, "fetching from remote failed") from e
     if not await m.has_commit(sha):
         raise fastapi.HTTPException(409, f"commit {sha} not found in remote")
+
+
+@router.get("/api/v1/projects/{project}/series")
+async def series(  # noqa: PLR0913
+    access: ReaderDep,
+    metrics: MetricsQuery,
+    ref: str = "default",
+    base: str = "default",
+    from_ms: typing.Annotated[int | None, fastapi.Query(alias="from")] = None,
+    to_ms: typing.Annotated[int | None, fastapi.Query(alias="to")] = None,
+    labels: LabelsQuery = (),
+    agg: Aggregation = "median",
+):
+    metric_names = parse_metrics(metrics)
+    label_filters = parse_label_filters(labels)
+    m = access.project.mirror
+    ref_sha = await resolve(m, ref)
+    base_sha = await resolve(m, base)
+    history = await m.history(ref_sha)
+    on_branch = await m.branch_only(base_sha, ref_sha)
+    commits = [
+        (idx, c)
+        for idx, c in enumerate(history)
+        if (from_ms is None or c.time * 1000 >= from_ms)
+        and (to_ms is None or c.time * 1000 <= to_ms)
+    ]
+    rows = await access.state.db.read(
+        store.measurements,
+        access.project.id,
+        [c.sha for _, c in commits],
+        metric_names,
+        label_filters,
+    )
+    points = store.aggregate(rows, agg)
+    return fastapi.responses.JSONResponse(series_rows(commits, points, on_branch))
+
+
+def series_rows(commits, points, on_branch):
+    """Flat rows for Grafana, oldest commit first."""
+    by_sha = {}
+    for (sha, metric, labels_json), point in points.items():
+        by_sha.setdefault(sha, []).append((metric, labels_json, point))
+    result = []
+    for idx, commit in reversed(commits):
+        for metric, labels_json, point in sorted(by_sha.get(commit.sha, ())):
+            series_labels = json.loads(labels_json)
+            result.append(
+                {
+                    "time": commit.time * 1000,
+                    "idx": idx,
+                    "sha": commit.sha,
+                    "short": commit.sha[:8],
+                    "subject": commit.subject,
+                    "metric": metric,
+                    "labels": series_labels,
+                    "series": series_name(metric, series_labels),
+                    "value": point.value,
+                    "runs": point.runs,
+                    "source": point.source,
+                    "on_branch": commit.sha in on_branch,
+                }
+            )
+    return result
+
+
+def parse_metrics(values):
+    names = [n.strip() for v in values for n in v.split(",") if n.strip()]
+    invalid = [n for n in names if not METRIC_RE.match(n)]
+    if invalid or not names:
+        raise fastapi.HTTPException(400, f"invalid metric names: {invalid}")
+    return names
+
+
+def parse_label_filters(values):
+    filters = {}
+    for value in values:
+        key, sep, label_value = value.partition(":")
+        if not sep or not LABEL_KEY_RE.match(key):
+            raise fastapi.HTTPException(
+                400, f"invalid label filter {value!r}, expected key:value"
+            )
+        filters.setdefault(key, []).append(label_value)
+    return filters
+
+
+async def resolve(m, ref):
+    """Resolves a ref name or full SHA; 'default' means the remote's default branch.
+
+    Unknown refs trigger a (rate-limited) fetch before giving up.
+    """
+    if ref == "default":
+        ref = m.default_branch
+    try:
+        return await m.resolve(ref)
+    except mirror.UnknownRefError:
+        pass
+    try:
+        not_before = time.monotonic() - ON_DEMAND_FETCH_INTERVAL
+        await asyncio.wait_for(
+            asyncio.shield(m.fetch(not_before=not_before)), FETCH_TIMEOUT
+        )
+    except (TimeoutError, mirror.GitError) as e:
+        log.warning("fetch for unknown ref %s failed: %s", ref, e)
+    return await m.resolve(ref)
+
+
+def series_name(metric, labels):
+    if not labels:
+        return metric
+    return f"{metric}{{{','.join(f'{k}={v}' for k, v in sorted(labels.items()))}}}"

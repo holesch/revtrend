@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import statistics
 
 
 class ConflictError(Exception):
@@ -58,3 +59,66 @@ def insert_measurements(conn, run, metrics):
                 f"run {run.run_id!r} already has {name}{labels} = {existing}, got {value}"
             )
     return created
+
+
+@dataclasses.dataclass(frozen=True)
+class Point:
+    value: float
+    runs: int
+    source: str
+
+
+def measurements(conn, project_id, shas, metrics=None, label_filters=None):
+    """Measurements of the given commits, optionally filtered.
+
+    `label_filters` maps label key to accepted values: values of one key are
+    alternatives, different keys must all match.
+    """
+    sql = (
+        "SELECT id, sha, metric, labels, value, source, measured_at FROM measurement"
+        " WHERE project_id = ? AND sha IN (SELECT value FROM json_each(?))"
+    )
+    params = [project_id, json.dumps(list(shas))]
+    if metrics:
+        sql += " AND metric IN (SELECT value FROM json_each(?))"
+        params.append(json.dumps(list(metrics)))
+    for key, values in (label_filters or {}).items():
+        sql += " AND json_extract(labels, ?) IN (SELECT value FROM json_each(?))"
+        params.extend([f"$.{key}", json.dumps(list(values))])
+    return conn.execute(sql, params).fetchall()
+
+
+def aggregate(rows, agg):
+    """Aggregates runs per (sha, metric, labels).
+
+    CI runs take precedence: manual runs are only used for series/commits
+    without any CI run.
+    """
+    groups = {}
+    for row in rows:
+        groups.setdefault((row["sha"], row["metric"], row["labels"]), []).append(row)
+    points = {}
+    for key, group in groups.items():
+        ci = [r for r in group if r["source"] == "ci"]
+        used = ci or group
+        points[key] = Point(
+            value=AGGREGATIONS[agg](used), runs=len(used), source=used[0]["source"]
+        )
+    return points
+
+
+def _latest(rows):
+    return max(rows, key=lambda r: (r["measured_at"], r["id"]))["value"]
+
+
+def _values(fn):
+    return lambda rows: fn([r["value"] for r in rows])
+
+
+AGGREGATIONS = {
+    "median": _values(statistics.median),
+    "mean": _values(statistics.fmean),
+    "min": _values(min),
+    "max": _values(max),
+    "latest": _latest,
+}
