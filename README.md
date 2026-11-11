@@ -43,6 +43,38 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
 The measurement `source` (`ci` or `manual`) is derived from the token issuer,
 never from the request. Per commit, CI runs take precedence over manual runs.
 
+## CLI
+
+```sh
+pipx install revtrend
+export REVTREND_URL=https://revtrend.example
+
+revtrend login
+revtrend push --project myproject --sha HEAD metrics.json
+revtrend compare --project myproject --head HEAD --base release/1.0
+```
+
+`login` prints a URL to open in any browser, also from an ssh session: the
+service receives the login redirect and relays the authorization code to the
+CLI, which redeems it with its PKCE verifier. Tokens are cached in
+`~/.cache/revtrend/sessions.json` and refreshed automatically.
+`$REVTREND_TOKEN` overrides the cached session.
+
+`push` takes a JSON array of metrics (`-` reads stdin):
+
+```json
+[{"name": "image.size_bytes", "value": 81234432,
+  "labels": {"machine": "amd64", "image": "core-image"}}]
+```
+
+`--sha` and `--head` are resolved in the current repository, so backfilling
+means checking out an old commit, measuring and pushing. The commit must exist
+in the remote. The run id defaults to `manual-<user>-<timestamp>`; pass
+`--run-id` to make a retry idempotent.
+
+`compare` prints head vs. baseline per series, or the raw response with
+`--json`.
+
 ## Development
 
 ```sh
