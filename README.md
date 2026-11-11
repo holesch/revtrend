@@ -9,6 +9,12 @@ coverage, …) and visualize them over time in Grafana.
 uv sync
 ```
 
+Tests:
+
+```sh
+uv run pytest
+```
+
 Static checks:
 
 ```sh
