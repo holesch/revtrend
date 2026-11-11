@@ -18,3 +18,62 @@ dependencies = [
 [project.scripts]
 revtrend = "revtrend.cli:main"
 revtrend-server = "revtrend.server:main"
+
+[dependency-groups]
+dev = ["ruff==0.14.7"]
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes
+    "E", "W", # pycodestyle
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "ISC",    # flake8-implicit-str-concat
+    "LOG",    # flake8-logging
+    "G",      # flake8-logging-format
+    "PIE",    # flake8-pie
+    "T20",    # flake8-print
+    "PT",     # flake8-pytest-style
+    "RSE",    # flake8-raise
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "PL",     # Pylint
+    "FLY",    # flynt
+    "FURB",   # refurb
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    # "Line too long"
+    # -> ruff format handles code, long strings are fine
+    "E501",
+    # "for loop variable overwritten by assignment target"
+    "PLW2901",
+    # "open() should be replaced by Path.open()"
+    # -> creating a Path object just to open a file is overkill
+    "PTH123",
+    # "subprocess call: check for execution of untrusted input"
+    # -> false positives, git is called with argument lists
+    "S603",
+    # "Use ternary operator instead of if-else-block"
+    # -> can make the code less readable
+    "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**.py" = [
+    # "Magic value used in comparison"
+    "PLR2004",
+    # "Use of assert detected"
+    "S101",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"

@@ -6,9 +6,14 @@ coverage, …) and visualize them over time in Grafana.
 ## Development
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e .
+uv sync
+```
+
+Static checks:
+
+```sh
+uv run ruff check
+uv run ruff format --check
 ```
 
 Entry points:
