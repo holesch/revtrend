@@ -142,3 +142,15 @@ def metrics(conn, project_id):
         }
         for name, labels in sorted(result.items())
     ]
+
+
+def delete_measurements(conn, project_id, run_id=None, metric=None):
+    sql = "DELETE FROM measurement WHERE project_id = ?"
+    params = [project_id]
+    if run_id is not None:
+        sql += " AND run_id = ?"
+        params.append(run_id)
+    if metric is not None:
+        sql += " AND metric = ?"
+        params.append(metric)
+    return conn.execute(sql, params).rowcount

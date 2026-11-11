@@ -418,3 +418,23 @@ def comparison(key, head, baseline, tip):
         if result["baseline"]:
             result["delta_pct"] = round(delta / abs(result["baseline"]) * 100, 4)
     return result
+
+
+@router.delete("/api/v1/projects/{project}/measurements")
+async def delete_measurements(
+    access: AdminDep, run_id: str | None = None, metric: str | None = None
+):
+    if run_id is None and metric is None:
+        raise fastapi.HTTPException(400, "run_id or metric required")
+    deleted = await access.state.db.write(
+        store.delete_measurements, access.project.id, run_id, metric
+    )
+    log.info(
+        "delete project=%s run_id=%s metric=%s deleted=%d submitted_by=%s",
+        access.project.config.name,
+        run_id,
+        metric,
+        deleted,
+        access.principal.submitted_by,
+    )
+    return {"deleted": deleted}
