@@ -86,7 +86,13 @@ class TokenIssuer:
         self.requests.append(str(request.url))
         if str(request.url) == f"{self.url}/.well-known/openid-configuration":
             return httpx.Response(
-                200, json={"issuer": self.url, "jwks_uri": f"{self.url}/keys"}
+                200,
+                json={
+                    "issuer": self.url,
+                    "jwks_uri": f"{self.url}/keys",
+                    "authorization_endpoint": f"{self.url}/authorize",
+                    "token_endpoint": f"{self.url}/token",
+                },
             )
         if str(request.url) == f"{self.url}/keys":
             return httpx.Response(200, json=self.jwks())
