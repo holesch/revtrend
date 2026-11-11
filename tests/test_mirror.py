@@ -8,7 +8,7 @@ import revtrend.mirror as mirror
 
 
 @pytest.fixture
-async def repo(tmp_path, remote, graph):  # noqa: ARG001
+async def repo(tmp_path, remote, graph):
     m = mirror.Mirror(tmp_path / "repos" / "test.git", remote.url)
     await m.init()
     return m

@@ -240,7 +240,7 @@ class Client(fastapi.testclient.TestClient):
 
 
 @pytest.fixture
-def client(tmp_path, remote, graph, jenkins, entra):  # noqa: ARG001
+def client(tmp_path, remote, graph, jenkins, entra):
     cfg = app_config(tmp_path, remote, jenkins, entra)
     app = revtrend.server.create_app(cfg, http_client=mock_http_client(jenkins, entra))
     with Client(app, jenkins, entra) as c:
