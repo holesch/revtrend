@@ -14,6 +14,8 @@ import urllib.parse
 
 import httpx
 
+import revtrend.store as store
+
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 LOGIN_TIMEOUT = 600
 POLL_TIMEOUT = 60
@@ -50,6 +52,28 @@ def main(argv=None, http=None):
         help='JSON array of {"name", "value", "labels"} metrics, "-" for stdin',
     )
     push_parser.set_defaults(func=push)
+    compare_parser = commands.add_parser(
+        "compare", help="compare a commit with its merge base on a base ref"
+    )
+    compare_parser.add_argument("--project", required=True)
+    compare_parser.add_argument(
+        "--head", default="HEAD", help="commit, resolved in the current repository"
+    )
+    compare_parser.add_argument(
+        "--base", default="default", help="ref on the service (default: default)"
+    )
+    compare_parser.add_argument("--metric", action="append", help="repeatable")
+    compare_parser.add_argument(
+        "--label", action="append", metavar="KEY:VALUE", help="repeatable"
+    )
+    compare_parser.add_argument(
+        "--agg",
+        choices=list(store.AGGREGATIONS),
+        default="median",
+        help="per-commit aggregation",
+    )
+    compare_parser.add_argument("--json", action="store_true", help="raw response")
+    compare_parser.set_defaults(func=compare)
     args = parser.parse_args(argv)
     if not args.url:
         parser.error("--url or REVTREND_URL required")
@@ -229,6 +253,67 @@ def resolve_commit(rev):
 def default_run_id():
     timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     return f"manual-{getpass.getuser()}-{timestamp}"
+
+
+def compare(args, http):
+    params = {
+        "head": resolve_commit(args.head),
+        "base": args.base,
+        "metric": args.metric or [],
+        "labels": args.label or [],
+        "agg": args.agg,
+    }
+    result = api_request(http, args, "GET", "compare", params=params)
+    if args.json:
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+    else:
+        sys.stdout.write(format_comparison(result))
+
+
+def format_comparison(result):
+    base = result["base"]
+    lines = [
+        f"{result['head']['short']} vs. {base['ref']} "
+        f"(merge base {base['fork_sha'][:8]}, tip {base['tip_sha'][:8]})",
+        "",
+    ]
+    rows = [("series", "baseline", "head", "delta", "delta %")]
+    for r in result["results"]:
+        baseline = number(r["baseline"])
+        if r["baseline_distance"]:
+            baseline += f" ({r['baseline_distance']} back)"
+        rows.append(
+            (
+                series_name(r["metric"], r["labels"]),
+                baseline,
+                number(r["head"]),
+                number(r["delta"], sign=True),
+                number(r["delta_pct"], sign=True),
+            )
+        )
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    for row in rows:
+        cells = [row[0].ljust(widths[0])]
+        cells += [
+            cell.rjust(width) for cell, width in zip(row[1:], widths[1:], strict=True)
+        ]
+        lines.append("  ".join(cells).rstrip())
+    return "\n".join(lines) + "\n"
+
+
+def number(value, sign=False):
+    if value is None:
+        return "-"
+    spec = "+" if sign else ""
+    if value == int(value):
+        return f"{int(value):{spec}d}"
+    return f"{round(value, 4):{spec}}"
+
+
+def series_name(metric, labels):
+    if not labels:
+        return metric
+    return f"{metric}{{{','.join(f'{k}={v}' for k, v in sorted(labels.items()))}}}"
 
 
 def api_request(http, args, method, path, **kwargs):

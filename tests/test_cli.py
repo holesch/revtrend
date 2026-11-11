@@ -5,6 +5,7 @@ import secrets
 import stat
 import urllib.parse
 
+import conftest
 import httpx
 import pytest
 
@@ -254,3 +255,43 @@ def test_push_invalid_file(run, graph, tmp_path, capsys):
     with pytest.raises(SystemExit):
         run("push", "--project", "test", "--sha", graph["c3"], str(path))
     assert "expected a JSON array" in capsys.readouterr().err
+
+
+def test_compare(run, client, graph, capsys):
+    conftest.push(client, graph["c2"], 40)
+    conftest.push(client, graph["x2"], 50)
+    conftest.push(client, graph["x2"], 7.25, metric="test.duration_seconds")
+    run("login")
+    capsys.readouterr()
+    run("compare", "--project", "test", "--head", graph["x2"])
+    assert capsys.readouterr().out == (
+        f"{graph['x2'][:8]} vs. master (merge base {graph['c3'][:8]}, tip {graph['c3'][:8]})\n"
+        "\n"
+        "series                                   baseline  head  delta  delta %\n"
+        "image.size_bytes{machine=amd64}       40 (2 back)    50    +10      +25\n"
+        "test.duration_seconds{machine=amd64}            -  7.25      -        -\n"
+    )
+
+
+def test_compare_json(run, client, remote, graph, monkeypatch, capsys):
+    conftest.push(client, graph["c3"], 40)
+    conftest.push(client, graph["x2"], 50)
+    conftest.push(client, graph["x2"], 1, metric="other")
+    run("login")
+    capsys.readouterr()
+    monkeypatch.chdir(remote.path)
+    remote.git("checkout", "--quiet", "feature/x")
+    run(
+        "compare",
+        "--project",
+        "test",
+        "--metric",
+        "image.size_bytes",
+        "--label",
+        "machine:amd64",
+        "--json",
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["head"]["sha"] == graph["x2"]
+    (row,) = result["results"]
+    assert row["delta"] == 10
