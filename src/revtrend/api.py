@@ -16,6 +16,7 @@ import revtrend.auth as auth
 import revtrend.config as config
 import revtrend.db as db
 import revtrend.mirror as mirror
+import revtrend.observability as observability
 import revtrend.relay as relay
 import revtrend.store as store
 
@@ -105,6 +106,12 @@ MetricsQuery = typing.Annotated[list[str], fastapi.Query(alias="metric")]
 LabelsQuery = typing.Annotated[list[str], fastapi.Query()]
 
 
+@router.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    content, media_type = observability.metrics_response()
+    return fastapi.Response(content, media_type=media_type)
+
+
 @router.get("/healthz")
 async def healthz(state: StateDep):
     return {
@@ -160,14 +167,19 @@ async def ingest(body: Measurements, access: WriterDep, response: fastapi.Respon
     except store.ConflictError as e:
         raise fastapi.HTTPException(409, str(e)) from e
     log.info(
-        "ingest project=%s sha=%s run_id=%s source=%s submitted_by=%s metrics=%d created=%d",
-        access.project.config.name,
-        body.sha,
-        body.run_id,
-        principal.source,
-        principal.submitted_by,
-        len(body.metrics),
+        "ingested %d of %d measurements",
         created,
+        len(body.metrics),
+        extra={
+            "project": access.project.config.name,
+            "sha": body.sha,
+            "run_id": body.run_id,
+            "source": principal.source,
+            "submitted_by": principal.submitted_by,
+        },
+    )
+    observability.INGESTED.labels(access.project.config.name, principal.source).inc(
+        created
     )
     if not created:
         response.status_code = 200
@@ -434,12 +446,14 @@ async def delete_measurements(
         store.delete_measurements, access.project.id, run_id, metric
     )
     log.info(
-        "delete project=%s run_id=%s metric=%s deleted=%d submitted_by=%s",
-        access.project.config.name,
-        run_id,
-        metric,
+        "deleted %d measurements",
         deleted,
-        access.principal.submitted_by,
+        extra={
+            "project": access.project.config.name,
+            "run_id": run_id,
+            "metric": metric,
+            "submitted_by": access.principal.submitted_by,
+        },
     )
     return {"deleted": deleted}
 

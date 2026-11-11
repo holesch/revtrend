@@ -15,6 +15,7 @@ import revtrend.auth as auth
 import revtrend.config as config
 import revtrend.db as db
 import revtrend.mirror as mirror
+import revtrend.observability as observability
 import revtrend.relay as relay
 
 log = logging.getLogger(__name__)
@@ -28,13 +29,12 @@ def main():
         "--config", type=config.load, default="/etc/revtrend/config.toml"
     )
     args = parser.parse_args()
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    observability.setup_logging()
     uvicorn.run(
         create_app(args.config),
         host=args.config.server.host,
         port=args.config.server.port,
+        log_config=None,
     )
 
 
@@ -60,6 +60,7 @@ def create_app(cfg, http_client=None):
 
     app = fastapi.FastAPI(title="revtrend", lifespan=lifespan)
     app.include_router(api.router)
+    app.add_middleware(observability.MetricsMiddleware)
     app.add_exception_handler(
         fastapi.exceptions.RequestValidationError, validation_error
     )

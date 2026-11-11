@@ -7,6 +7,8 @@ import re
 import shutil
 import time
 
+import revtrend.observability as observability
+
 log = logging.getLogger(__name__)
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -56,6 +58,7 @@ class Mirror:
 
     def __init__(self, path, remote_url, credentials_file=None, cache_size=64):
         self.path = path
+        self.name = path.name.removesuffix(".git")
         self.remote_url = remote_url
         self.credentials_file = credentials_file
         self.default_branch = None
@@ -87,8 +90,13 @@ class Mirror:
             ):
                 return
             self.last_fetch_started = time.monotonic()
-            await self._git_remote("fetch", "--prune", "--quiet", "origin")
-            await self._update_default_branch()
+            try:
+                with observability.FETCH_DURATION.labels(self.name).time():
+                    await self._git_remote("fetch", "--prune", "--quiet", "origin")
+                    await self._update_default_branch()
+            except Exception:
+                observability.FETCH_FAILURES.labels(self.name).inc()
+                raise
 
     async def resolve(self, ref):
         self._check_ready()
