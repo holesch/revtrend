@@ -549,6 +549,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "uvicorn" },
 ]
@@ -564,6 +565,7 @@ dev = [
 requires-dist = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "pydantic", specifier = ">=2.14.3" },
     { name = "pyjwt", extras = ["crypto"] },
     { name = "uvicorn" },
 ]

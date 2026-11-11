@@ -1,14 +1,34 @@
+import asyncio
 import dataclasses
+import logging
+import time
 import typing
 
 import fastapi
+import pydantic
 
 import revtrend.auth as auth
 import revtrend.config as config
 import revtrend.db as db
 import revtrend.mirror as mirror
+import revtrend.store as store
+
+log = logging.getLogger(__name__)
 
 router = fastapi.APIRouter()
+
+FETCH_TIMEOUT = 60
+
+Sha = typing.Annotated[str, pydantic.StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+MetricName = typing.Annotated[
+    str, pydantic.StringConstraints(pattern=r"^[a-z0-9_.]+$", max_length=128)
+]
+LabelKey = typing.Annotated[
+    str, pydantic.StringConstraints(pattern=r"^[a-z0-9_]+$", max_length=64)
+]
+LabelValue = typing.Annotated[
+    str, pydantic.StringConstraints(min_length=1, max_length=256)
+]
 
 
 @dataclasses.dataclass
@@ -79,3 +99,78 @@ async def healthz(state: StateDep):
             name: {"ready": p.mirror.ready} for name, p in state.projects.items()
         },
     }
+
+
+class Metric(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+    name: MetricName
+    value: pydantic.FiniteFloat
+    labels: typing.Annotated[
+        dict[LabelKey, LabelValue], pydantic.Field(max_length=16)
+    ] = {}
+
+
+class Measurements(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+    sha: Sha
+    run_id: typing.Annotated[
+        str, pydantic.StringConstraints(min_length=1, max_length=512)
+    ]
+    metrics: typing.Annotated[
+        list[Metric], pydantic.Field(min_length=1, max_length=10000)
+    ]
+
+    @pydantic.model_validator(mode="after")
+    def unique_series(self):
+        keys = [(m.name, tuple(sorted(m.labels.items()))) for m in self.metrics]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate metric name/labels combination")
+        return self
+
+
+@router.post("/api/v1/projects/{project}/measurements", status_code=201)
+async def ingest(body: Measurements, access: WriterDep, response: fastapi.Response):
+    await require_commit(access.project.mirror, body.sha)
+    principal = access.principal
+    run = store.Run(
+        project_id=access.project.id,
+        sha=body.sha,
+        run_id=body.run_id,
+        source=principal.source,
+        submitted_by=principal.submitted_by,
+        measured_at=int(time.time()),
+    )
+    metrics = [(m.name, m.labels, m.value) for m in body.metrics]
+    try:
+        created = await access.state.db.write(store.insert_measurements, run, metrics)
+    except store.ConflictError as e:
+        raise fastapi.HTTPException(409, str(e)) from e
+    log.info(
+        "ingest project=%s sha=%s run_id=%s source=%s submitted_by=%s metrics=%d created=%d",
+        access.project.config.name,
+        body.sha,
+        body.run_id,
+        principal.source,
+        principal.submitted_by,
+        len(body.metrics),
+        created,
+    )
+    if not created:
+        response.status_code = 200
+    return {"created": created, "existing": len(body.metrics) - created}
+
+
+async def require_commit(m, sha):
+    """Fetches if `sha` is unknown. Only commits that exist in the remote are accepted."""
+    if await m.has_commit(sha):
+        return
+    requested = time.monotonic()
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(m.fetch(not_before=requested)), FETCH_TIMEOUT
+        )
+    except (TimeoutError, mirror.GitError) as e:
+        log.warning("fetch for unknown commit %s failed: %s", sha, e)
+        raise fastapi.HTTPException(503, "fetching from remote failed") from e
+    if not await m.has_commit(sha):
+        raise fastapi.HTTPException(409, f"commit {sha} not found in remote")

@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "httpx",
+    "pydantic>=2.14.3",
     "PyJWT[crypto]",
     "uvicorn",
 ]
