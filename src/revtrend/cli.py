@@ -1,16 +1,20 @@
 import argparse
 import base64
+import getpass
 import hashlib
 import json
 import os
 import pathlib
+import re
 import secrets
+import subprocess
 import sys
 import time
 import urllib.parse
 
 import httpx
 
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 LOGIN_TIMEOUT = 600
 POLL_TIMEOUT = 60
 # refresh access tokens that expire within this many seconds
@@ -31,6 +35,21 @@ def main(argv=None, http=None):
     commands = parser.add_subparsers(dest="command", required=True)
     login_parser = commands.add_parser("login", help="log in with the browser")
     login_parser.set_defaults(func=login)
+    push_parser = commands.add_parser(
+        "push", help="push measurements of one run for a commit"
+    )
+    push_parser.add_argument("--project", required=True)
+    push_parser.add_argument(
+        "--sha", default="HEAD", help="commit, resolved in the current repository"
+    )
+    push_parser.add_argument(
+        "--run-id", help="default: manual-<user>-<timestamp>; reuse it to retry"
+    )
+    push_parser.add_argument(
+        "file",
+        help='JSON array of {"name", "value", "labels"} metrics, "-" for stdin',
+    )
+    push_parser.set_defaults(func=push)
     args = parser.parse_args(argv)
     if not args.url:
         parser.error("--url or REVTREND_URL required")
@@ -166,3 +185,83 @@ def load_sessions():
         return json.loads(sessions_file().read_text())
     except FileNotFoundError:
         return {}
+
+
+def push(args, http):
+    metrics = read_metrics(args.file)
+    sha = resolve_commit(args.sha)
+    run_id = args.run_id or default_run_id()
+    result = api_request(
+        http,
+        args,
+        "POST",
+        "measurements",
+        json={"sha": sha, "run_id": run_id, "metrics": metrics},
+    )
+    sys.stdout.write(
+        f"{sha[:8]} {run_id}: {result['created']} created, "
+        f"{result['existing']} already present\n"
+    )
+
+
+def read_metrics(path):
+    text = sys.stdin.read() if path == "-" else pathlib.Path(path).read_text()
+    metrics = json.loads(text)
+    if not isinstance(metrics, list):
+        raise CliError(f"{path}: expected a JSON array of metrics")
+    return metrics
+
+
+def resolve_commit(rev):
+    if SHA_RE.match(rev):
+        return rev
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{rev}^{{commit}}"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise CliError(f"cannot resolve {rev!r}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def default_run_id():
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    return f"manual-{getpass.getuser()}-{timestamp}"
+
+
+def api_request(http, args, method, path, **kwargs):
+    project = urllib.parse.quote(args.project, safe="")
+    response = http.request(
+        method,
+        f"{args.url}/api/v1/projects/{project}/{path}",
+        headers={"Authorization": f"Bearer {access_token(http, args.url)}"},
+        **kwargs,
+    )
+    return check(response).json()
+
+
+def access_token(http, url):
+    """$REVTREND_TOKEN, or the cached session's token, refreshed if needed."""
+    if token := os.environ.get("REVTREND_TOKEN"):
+        return token
+    session = load_sessions().get(url)
+    if session is None:
+        raise CliError(f"not logged in to {url}, run 'revtrend login'")
+    if session["expires_at"] - EXPIRY_MARGIN > time.time():
+        return session["access_token"]
+    if not session["refresh_token"]:
+        raise CliError("session expired, run 'revtrend login'")
+    try:
+        tokens = token_request(
+            http,
+            session,
+            grant_type="refresh_token",
+            refresh_token=session["refresh_token"],
+        )
+    except CliError as e:
+        raise CliError(f"session expired, run 'revtrend login' ({e})") from e
+    session |= {k: v for k, v in tokens.items() if v}
+    save_session(url, session)
+    return session["access_token"]

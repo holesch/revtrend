@@ -123,3 +123,134 @@ def test_url_required(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         cli.main(["login"])
     assert "REVTREND_URL" in capsys.readouterr().err
+
+
+def series(client, metric="image.size_bytes"):
+    response = client.get(
+        "/api/v1/projects/test/series",
+        params={"metric": metric},
+        headers=client.as_user("reader"),
+    )
+    return response.json()
+
+
+@pytest.fixture
+def metrics_file(tmp_path):
+    path = tmp_path / "metrics.json"
+    path.write_text(
+        json.dumps(
+            [{"name": "image.size_bytes", "value": 42, "labels": {"machine": "amd64"}}]
+        )
+    )
+    return path
+
+
+def test_push(run, client, graph, metrics_file, capsys):
+    run("login")
+    run(
+        "push",
+        "--project",
+        "test",
+        "--sha",
+        graph["c3"],
+        "--run-id",
+        "r1",
+        str(metrics_file),
+    )
+    assert (
+        capsys.readouterr().out
+        == f"{graph['c3'][:8]} r1: 1 created, 0 already present\n"
+    )
+    run(
+        "push",
+        "--project",
+        "test",
+        "--sha",
+        graph["c3"],
+        "--run-id",
+        "r1",
+        str(metrics_file),
+    )
+    assert "0 created, 1 already present" in capsys.readouterr().out
+    (row,) = series(client)
+    assert row["sha"] == graph["c3"]
+    assert row["value"] == 42
+    assert row["source"] == "manual"
+
+
+def test_push_resolves_rev(run, client, remote, graph, metrics_file, monkeypatch):
+    run("login")
+    monkeypatch.chdir(remote.path)
+    run("push", "--project", "test", "--sha", "master~1", str(metrics_file))
+    (row,) = series(client)
+    assert row["sha"] == graph["m1"]
+
+
+def test_push_default_run_id(run, graph, metrics_file, capsys):
+    run("login")
+    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    assert " manual-" in capsys.readouterr().out
+
+
+def test_push_unknown_rev(run, remote, metrics_file, monkeypatch, capsys):
+    run("login")
+    monkeypatch.chdir(remote.path)
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", "nope", str(metrics_file))
+    assert "cannot resolve 'nope'" in capsys.readouterr().err
+
+
+def test_push_server_error(run, metrics_file, capsys):
+    run("login")
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", "0" * 40, str(metrics_file))
+    assert "(409)" in capsys.readouterr().err
+
+
+def test_push_requires_login(run, graph, metrics_file, capsys):
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    assert "not logged in" in capsys.readouterr().err
+
+
+def test_push_token_from_env(run, client, graph, metrics_file, monkeypatch):
+    token = client.as_user("writer")["Authorization"].removeprefix("Bearer ")
+    monkeypatch.setenv("REVTREND_TOKEN", token)
+    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    assert len(series(client)) == 1
+
+
+def expire_session(tmp_path):
+    path = tmp_path / "cache/revtrend/sessions.json"
+    data = sessions(tmp_path)
+    data[URL]["expires_at"] = 0
+    path.write_text(json.dumps(data))
+
+
+def test_refresh(run, client, auth_server, graph, metrics_file, tmp_path):
+    run("login")
+    old = sessions(tmp_path)[URL]["refresh_token"]
+    expire_session(tmp_path)
+    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    assert auth_server.token_requests[-1]["grant_type"] == "refresh_token"
+    session = sessions(tmp_path)[URL]
+    assert session["refresh_token"] not in (None, old)
+    assert session["expires_at"] > 0
+    assert len(series(client)) == 1
+
+
+def test_refresh_rejected(run, auth_server, graph, metrics_file, tmp_path, capsys):
+    run("login")
+    auth_server.refresh_tokens.clear()
+    expire_session(tmp_path)
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    assert "session expired, run 'revtrend login'" in capsys.readouterr().err
+
+
+def test_push_invalid_file(run, graph, tmp_path, capsys):
+    path = tmp_path / "metrics.json"
+    path.write_text('{"metrics": []}')
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", graph["c3"], str(path))
+    assert "expected a JSON array" in capsys.readouterr().err
