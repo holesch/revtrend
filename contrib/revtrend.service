@@ -1,0 +1,20 @@
+[Unit]
+Description=revtrend metrics service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=revtrend
+Group=revtrend
+ExecStart=/opt/revtrend/venv/bin/revtrend-server --config /etc/revtrend/config.toml
+Restart=on-failure
+Environment=HOME=/var/lib/revtrend
+StateDirectory=revtrend
+ProtectSystem=strict
+ReadWritePaths=/var/lib/revtrend
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

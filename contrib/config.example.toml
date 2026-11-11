@@ -1,0 +1,51 @@
+# /etc/revtrend/config.toml (root:revtrend 0640)
+
+[server]
+listen = "127.0.0.1:8080"                # behind a reverse proxy with TLS
+public_url = "https://revtrend.example"
+data_dir = "/var/lib/revtrend"           # metrics.db and repos/<project>.git
+
+# PKCE code relay for `revtrend login`
+[cli_auth]
+authority = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+client_id = "<revtrend app client id>"
+scopes = ["api://revtrend/Metrics.Write", "offline_access"]
+
+[[issuers]]
+name = "jenkins"
+issuer = "https://jenkins.example/oidc"
+audience = "revtrend"
+source = "ci"
+
+  [[issuers.rules]]
+  claim = "sub"
+  regex = '^https://jenkins\.example/job/myproject/'
+  grants = [{ project = "myproject", role = "writer" }]
+
+[[issuers]]
+name = "entra"
+issuer = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+audience = "<revtrend app client id>"
+source = "manual"
+
+  [[issuers.rules]]
+  claim = "roles"
+  contains = "myproject.Reader"
+  grants = [{ project = "myproject", role = "reader" }]
+
+  [[issuers.rules]]
+  claim = "roles"
+  contains = "myproject.Writer"
+  grants = [{ project = "myproject", role = "writer" }]
+
+  [[issuers.rules]]
+  claim = "roles"
+  contains = "myproject.Admin"
+  grants = [{ project = "myproject", role = "admin" }]
+
+[[projects]]
+name = "myproject"
+remote_url = "https://git.example/scm/myproject.git"
+credentials_file = "/etc/revtrend/myproject.token"   # read-only HTTP access token, 0600
+fetch_interval = "5m"
+compare_max_walk = 50
