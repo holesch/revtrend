@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import fnmatch
 import json
 import logging
 import re
@@ -293,3 +294,43 @@ def series_name(metric, labels):
     if not labels:
         return metric
     return f"{metric}{{{','.join(f'{k}={v}' for k, v in sorted(labels.items()))}}}"
+
+
+@router.get("/api/v1/projects")
+async def projects(state: StateDep, principal: PrincipalDep):
+    return [
+        {"name": name, "default_branch": p.mirror.default_branch}
+        for name, p in state.projects.items()
+        if principal.has_role(name, "reader")
+    ]
+
+
+@router.get("/api/v1/projects/{project}/refs")
+async def refs(
+    access: ReaderDep, active_since: str | None = None, match: str | None = None
+):
+    m = access.project.mirror
+    min_time = 0
+    if active_since is not None:
+        try:
+            min_time = time.time() - config.parse_duration(active_since)
+        except config.ConfigError as e:
+            raise fastapi.HTTPException(400, str(e)) from e
+    result = [
+        {
+            "name": r.name,
+            "default": r.name == m.default_branch,
+            "sha": r.sha,
+            "time": r.time * 1000,
+        }
+        for r in await m.refs()
+        if (r.time >= min_time or r.name == m.default_branch)
+        and (match is None or fnmatch.fnmatchcase(r.name, match))
+    ]
+    result.sort(key=lambda r: (not r["default"], -r["time"], r["name"]))
+    return result
+
+
+@router.get("/api/v1/projects/{project}/metrics")
+async def metrics(access: ReaderDep):
+    return await access.state.db.read(store.metrics, access.project.id)

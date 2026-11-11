@@ -122,3 +122,23 @@ AGGREGATIONS = {
     "max": _values(max),
     "latest": _latest,
 }
+
+
+def metrics(conn, project_id):
+    """Metric names with the values seen per label key."""
+    rows = conn.execute(
+        "SELECT DISTINCT metric, labels FROM measurement WHERE project_id = ?",
+        (project_id,),
+    )
+    result = {}
+    for row in rows:
+        labels = result.setdefault(row["metric"], {})
+        for key, value in json.loads(row["labels"]).items():
+            labels.setdefault(key, set()).add(value)
+    return [
+        {
+            "name": name,
+            "labels": {key: sorted(values) for key, values in sorted(labels.items())},
+        }
+        for name, labels in sorted(result.items())
+    ]
