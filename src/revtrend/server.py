@@ -15,6 +15,7 @@ import revtrend.auth as auth
 import revtrend.config as config
 import revtrend.db as db
 import revtrend.mirror as mirror
+import revtrend.relay as relay
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ async def running_state(cfg, http):
             db=database,
             auth=auth.Authenticator(cfg.issuers, http),
             projects=projects,
+            relay=relay.Relay(),
         )
     finally:
         database.close()

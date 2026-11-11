@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import fnmatch
+import html
 import json
 import logging
 import re
@@ -15,6 +16,7 @@ import revtrend.auth as auth
 import revtrend.config as config
 import revtrend.db as db
 import revtrend.mirror as mirror
+import revtrend.relay as relay
 import revtrend.store as store
 
 log = logging.getLogger(__name__)
@@ -22,6 +24,7 @@ log = logging.getLogger(__name__)
 router = fastapi.APIRouter()
 
 FETCH_TIMEOUT = 60
+MAX_POLL_TIMEOUT = 60
 ON_DEMAND_FETCH_INTERVAL = 30
 METRIC_RE = re.compile(r"^[a-z0-9_.]+$")
 LABEL_KEY_RE = re.compile(r"^[a-z0-9_]+$")
@@ -51,6 +54,7 @@ class State:
     db: db.Database
     auth: auth.Authenticator
     projects: dict[str, Project]
+    relay: relay.Relay
 
 
 def get_state(request: fastapi.Request):
@@ -438,3 +442,64 @@ async def delete_measurements(
         access.principal.submitted_by,
     )
     return {"deleted": deleted}
+
+
+@router.get("/auth/cli/config")
+async def cli_config(state: StateDep):
+    cli_auth = state.config.cli_auth
+    if cli_auth is None:
+        raise fastapi.HTTPException(404, "CLI login not configured")
+    return {
+        "authority": cli_auth.authority,
+        "client_id": cli_auth.client_id,
+        "scopes": list(cli_auth.scopes),
+        "redirect_uri": f"{state.config.server.public_url}/auth/cli/callback",
+    }
+
+
+@router.get("/auth/cli/callback", response_class=fastapi.responses.HTMLResponse)
+async def cli_callback(
+    state: StateDep,
+    oauth_state: typing.Annotated[str, fastapi.Query(alias="state")],
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    check_relay_state(oauth_state)
+    if code:
+        result = {"code": code}
+        message = "Login complete. Return to the terminal."
+    else:
+        result = {
+            "error": error or "unknown_error",
+            "error_description": error_description,
+        }
+        message = f"Login failed: {error} {error_description or ''}"
+    try:
+        state.relay.deliver(oauth_state, result)
+    except relay.RelayFullError as e:
+        raise fastapi.HTTPException(503, str(e)) from e
+    return f"<!doctype html><title>revtrend</title><p>{html.escape(message)}</p>"
+
+
+@router.get("/auth/cli/poll")
+async def cli_poll(
+    state: StateDep,
+    oauth_state: typing.Annotated[str, fastapi.Query(alias="state")],
+    max_wait: typing.Annotated[
+        float, fastapi.Query(alias="timeout", gt=0, le=MAX_POLL_TIMEOUT)
+    ] = MAX_POLL_TIMEOUT,
+):
+    check_relay_state(oauth_state)
+    try:
+        result = await state.relay.wait(oauth_state, max_wait)
+    except relay.RelayFullError as e:
+        raise fastapi.HTTPException(503, str(e)) from e
+    if result is None:
+        return fastapi.Response(status_code=204)
+    return result
+
+
+def check_relay_state(value):
+    if not relay.STATE_RE.match(value):
+        raise fastapi.HTTPException(400, "invalid state")
