@@ -223,12 +223,10 @@ async def series(  # noqa: PLR0913
 
 def series_rows(commits, points, on_branch):
     """Flat rows for Grafana, oldest commit first."""
-    by_sha = {}
-    for (sha, metric, labels_json), point in points.items():
-        by_sha.setdefault(sha, []).append((metric, labels_json, point))
+    by_sha = series_points(points)
     result = []
     for idx, commit in reversed(commits):
-        for metric, labels_json, point in sorted(by_sha.get(commit.sha, ())):
+        for (metric, labels_json), point in sorted(by_sha.get(commit.sha, {}).items()):
             series_labels = json.loads(labels_json)
             result.append(
                 {
@@ -246,6 +244,14 @@ def series_rows(commits, points, on_branch):
                     "on_branch": commit.sha in on_branch,
                 }
             )
+    return result
+
+
+def series_points(points):
+    """{(sha, metric, labels): point} -> {sha: {(metric, labels): point}}"""
+    result = {}
+    for (sha, metric, labels_json), point in points.items():
+        result.setdefault(sha, {})[(metric, labels_json)] = point
     return result
 
 
@@ -334,3 +340,81 @@ async def refs(
 @router.get("/api/v1/projects/{project}/metrics")
 async def metrics(access: ReaderDep):
     return await access.state.db.read(store.metrics, access.project.id)
+
+
+@router.get("/api/v1/projects/{project}/compare")
+async def compare(  # noqa: PLR0913
+    access: ReaderDep,
+    head: str,
+    base: str = "default",
+    metrics: typing.Annotated[list[str], fastapi.Query(alias="metric")] = (),
+    labels: LabelsQuery = (),
+    agg: Aggregation = "median",
+):
+    if not mirror.SHA_RE.match(head):
+        raise fastapi.HTTPException(400, "head must be a full commit SHA")
+    metric_names = parse_metrics(metrics) if metrics else None
+    label_filters = parse_label_filters(labels)
+    m = access.project.mirror
+    await resolve(m, head)
+    tip = await resolve(m, base)
+    try:
+        fork = await m.merge_base(tip, head)
+    except mirror.NoMergeBaseError as e:
+        raise fastapi.HTTPException(409, str(e)) from e
+    walk = await m.first_parents(fork, access.project.config.compare_max_walk + 1)
+    rows = await access.state.db.read(
+        store.measurements,
+        access.project.id,
+        {head, tip, *walk},
+        metric_names,
+        label_filters,
+    )
+    points = series_points(store.aggregate(rows, agg))
+    head_points = points.get(head, {})
+    tip_points = points.get(tip, {})
+    baselines = {}
+    for distance, sha in enumerate(walk):
+        for key, point in points.get(sha, {}).items():
+            baselines.setdefault(key, (sha, distance, point))
+    results = [
+        comparison(key, head_points.get(key), baselines.get(key), tip_points.get(key))
+        for key in sorted(head_points.keys() | baselines.keys())
+    ]
+    return {
+        "head": {"sha": head, "short": head[:8]},
+        "base": {
+            "ref": m.default_branch if base == "default" else base,
+            "tip_sha": tip,
+            "fork_sha": fork,
+        },
+        "results": results,
+    }
+
+
+def comparison(key, head, baseline, tip):
+    metric, labels_json = key
+    result = {
+        "metric": metric,
+        "labels": json.loads(labels_json),
+        "status": "both" if head and baseline else "head_only" if head else "base_only",
+        "head": head.value if head else None,
+        "head_runs": head.runs if head else None,
+        "baseline": None,
+        "baseline_sha": None,
+        "baseline_distance": None,
+        "base_tip": tip.value if tip else None,
+        "delta": None,
+        "delta_pct": None,
+    }
+    if baseline:
+        sha, distance, point = baseline
+        result.update(
+            baseline=point.value, baseline_sha=sha, baseline_distance=distance
+        )
+    if head and baseline:
+        delta = head.value - result["baseline"]
+        result["delta"] = delta
+        if result["baseline"]:
+            result["delta_pct"] = round(delta / abs(result["baseline"]) * 100, 4)
+    return result

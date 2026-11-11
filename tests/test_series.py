@@ -1,3 +1,4 @@
+import conftest
 import pytest
 
 import revtrend.api as api
@@ -5,41 +6,21 @@ import revtrend.api as api
 URL = "/api/v1/projects/test/series"
 
 
-def push(
-    client,
-    sha,
-    value,
-    run_id="run",
-    headers=None,
-    machine="amd64",
-    metric="image.size_bytes",
-):
-    body = {
-        "sha": sha,
-        "run_id": run_id,
-        "metrics": [{"name": metric, "value": value, "labels": {"machine": machine}}],
-    }
-    response = client.post(
-        "/api/v1/projects/test/measurements",
-        json=body,
-        headers=headers or client.as_ci(),
-    )
-    assert response.status_code == 201, response.text
-
-
 @pytest.fixture
 def data(client, graph):
-    push(client, graph["c1"], 10)
-    push(client, graph["c1"], 99, machine="arm64")
-    push(client, graph["c2"], 20, headers=client.as_user("writer"))
-    push(client, graph["a1"], 15)
-    push(client, graph["m1"], 30)
-    push(client, graph["c3"], 40, run_id="r1")
-    push(client, graph["c3"], 42, run_id="r2")
-    push(client, graph["c3"], 44, run_id="r3")
-    push(client, graph["c3"], 1000, run_id="manual", headers=client.as_user("writer"))
-    push(client, graph["c3"], 5, metric="test.duration_seconds")
-    push(client, graph["x2"], 50)
+    conftest.push(client, graph["c1"], 10)
+    conftest.push(client, graph["c1"], 99, machine="arm64")
+    conftest.push(client, graph["c2"], 20, headers=client.as_user("writer"))
+    conftest.push(client, graph["a1"], 15)
+    conftest.push(client, graph["m1"], 30)
+    conftest.push(client, graph["c3"], 40, run_id="r1")
+    conftest.push(client, graph["c3"], 42, run_id="r2")
+    conftest.push(client, graph["c3"], 44, run_id="r3")
+    conftest.push(
+        client, graph["c3"], 1000, run_id="manual", headers=client.as_user("writer")
+    )
+    conftest.push(client, graph["c3"], 5, metric="test.duration_seconds")
+    conftest.push(client, graph["x2"], 50)
     return graph
 
 

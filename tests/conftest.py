@@ -239,6 +239,28 @@ class Client(fastapi.testclient.TestClient):
             time.sleep(0.02)
 
 
+def push(
+    client,
+    sha,
+    value,
+    run_id="run",
+    headers=None,
+    machine="amd64",
+    metric="image.size_bytes",
+):
+    body = {
+        "sha": sha,
+        "run_id": run_id,
+        "metrics": [{"name": metric, "value": value, "labels": {"machine": machine}}],
+    }
+    response = client.post(
+        "/api/v1/projects/test/measurements",
+        json=body,
+        headers=headers or client.as_ci(),
+    )
+    assert response.status_code == 201, response.text
+
+
 @pytest.fixture
 def client(tmp_path, remote, graph, jenkins, entra):
     cfg = app_config(tmp_path, remote, jenkins, entra)
