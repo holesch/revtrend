@@ -74,3 +74,9 @@ def sync_projects(conn, names):
     )
     rows = conn.execute("SELECT name, id FROM project").fetchall()
     return {row["name"]: row["id"] for row in rows}
+
+
+def set_default_branch(conn, project_id, branch):
+    conn.execute(
+        "UPDATE project SET default_branch = ? WHERE id = ?", (branch, project_id)
+    )

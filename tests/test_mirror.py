@@ -8,34 +8,6 @@ import revtrend.mirror as mirror
 
 
 @pytest.fixture
-def graph(remote):
-    """
-    master:      c1 - c2 ------- m1 - c3
-                       \\       /
-    feature/a:          a1 - a2
-    release/1.0:  c2 - r1
-    feature/x:    c3 - x1 - x2
-    """
-    shas = {}
-    shas["c1"] = remote.commit("c1")
-    shas["c2"] = remote.commit("c2")
-    remote.git("checkout", "--quiet", "-b", "feature/a")
-    shas["a1"] = remote.commit("a1")
-    shas["a2"] = remote.commit("a2")
-    remote.git("checkout", "--quiet", "master")
-    shas["m1"] = remote.merge("feature/a", "Merge feature/a")
-    shas["c3"] = remote.commit("c3")
-    remote.git("checkout", "--quiet", "-b", "release/1.0", shas["c2"])
-    shas["r1"] = remote.commit("r1")
-    remote.git("checkout", "--quiet", "-b", "feature/x", shas["c3"])
-    shas["x1"] = remote.commit("x1")
-    shas["x2"] = remote.commit("x2")
-    remote.git("checkout", "--quiet", "master")
-    remote.git("tag", "v1", shas["c2"])
-    return shas
-
-
-@pytest.fixture
 async def repo(tmp_path, remote, graph):  # noqa: ARG001
     m = mirror.Mirror(tmp_path / "repos" / "test.git", remote.url)
     await m.init()

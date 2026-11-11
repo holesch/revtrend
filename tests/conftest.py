@@ -3,9 +3,13 @@ import subprocess
 import time
 
 import cryptography.hazmat.primitives.asymmetric.rsa
+import fastapi.testclient
 import httpx
 import jwt
 import pytest
+
+import revtrend.config
+import revtrend.server
 
 # Makes asyncio report slow callbacks, e.g. blocking calls in async code.
 os.environ.setdefault("PYTHONASYNCIODEBUG", "1")
@@ -128,3 +132,113 @@ def jenkins():
 @pytest.fixture
 def entra():
     return TokenIssuer("https://login.example/tenant/v2.0")
+
+
+@pytest.fixture
+def graph(remote):
+    """
+    master:      c1 - c2 ------- m1 - c3
+                       \\       /
+    feature/a:          a1 - a2
+    release/1.0:  c2 - r1
+    feature/x:    c3 - x1 - x2
+    """
+    shas = {}
+    shas["c1"] = remote.commit("c1")
+    shas["c2"] = remote.commit("c2")
+    remote.git("checkout", "--quiet", "-b", "feature/a")
+    shas["a1"] = remote.commit("a1")
+    shas["a2"] = remote.commit("a2")
+    remote.git("checkout", "--quiet", "master")
+    shas["m1"] = remote.merge("feature/a", "Merge feature/a")
+    shas["c3"] = remote.commit("c3")
+    remote.git("checkout", "--quiet", "-b", "release/1.0", shas["c2"])
+    shas["r1"] = remote.commit("r1")
+    remote.git("checkout", "--quiet", "-b", "feature/x", shas["c3"])
+    shas["x1"] = remote.commit("x1")
+    shas["x2"] = remote.commit("x2")
+    remote.git("checkout", "--quiet", "master")
+    remote.git("tag", "v1", shas["c2"])
+    return shas
+
+
+def app_config(tmp_path, remote, jenkins, entra):
+    return revtrend.config.parse(
+        {
+            "server": {
+                "public_url": "https://revtrend.example",
+                "data_dir": str(tmp_path / "data"),
+            },
+            "cli_auth": {
+                "authority": entra.url,
+                "client_id": "client-id",
+                "scopes": ["api://revtrend/Metrics.Write", "offline_access"],
+            },
+            "issuers": [
+                {
+                    "name": "jenkins",
+                    "issuer": jenkins.url,
+                    "audience": "revtrend",
+                    "source": "ci",
+                    "rules": [
+                        {
+                            "claim": "sub",
+                            "regex": "^job/test/",
+                            "grants": [{"project": "test", "role": "writer"}],
+                        },
+                    ],
+                },
+                {
+                    "name": "entra",
+                    "issuer": entra.url,
+                    "audience": "client-id",
+                    "source": "manual",
+                    "rules": [
+                        {
+                            "claim": "roles",
+                            "contains": role,
+                            "grants": [{"project": "test", "role": role}],
+                        }
+                        for role in ("reader", "writer", "admin")
+                    ],
+                },
+            ],
+            "projects": [
+                {"name": "test", "remote_url": remote.url, "compare_max_walk": 3}
+            ],
+        }
+    )
+
+
+class Client(fastapi.testclient.TestClient):
+    def __init__(self, app, jenkins, entra):
+        super().__init__(app)
+        self.jenkins = jenkins
+        self.entra = entra
+
+    def as_ci(self, job="job/test/master"):
+        return {
+            "Authorization": f"Bearer {self.jenkins.token('revtrend', subject=job)}"
+        }
+
+    def as_user(self, *roles):
+        return {
+            "Authorization": f"Bearer {self.entra.token('client-id', subject='alice', roles=list(roles))}"
+        }
+
+    def wait_ready(self):
+        deadline = time.monotonic() + 10
+        while not all(
+            p["ready"] for p in self.get("/healthz").json()["projects"].values()
+        ):
+            assert time.monotonic() < deadline, "mirror not ready"
+            time.sleep(0.02)
+
+
+@pytest.fixture
+def client(tmp_path, remote, graph, jenkins, entra):  # noqa: ARG001
+    cfg = app_config(tmp_path, remote, jenkins, entra)
+    app = revtrend.server.create_app(cfg, http_client=mock_http_client(jenkins, entra))
+    with Client(app, jenkins, entra) as c:
+        c.wait_ready()
+        yield c
