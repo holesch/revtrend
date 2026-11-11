@@ -85,6 +85,8 @@ ignore = [
     "PLR2004",
     # "Use of assert detected"
     "S101",
+    # "Starting a process with a partial executable path"
+    "S607",
 ]
 
 [tool.ruff.lint.flake8-tidy-imports]
