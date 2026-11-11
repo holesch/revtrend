@@ -1,3 +1,4 @@
+import functools
 import os
 import subprocess
 import time
@@ -69,14 +70,10 @@ def remote(tmp_path):
 class TokenIssuer:
     """An OIDC issuer serving discovery and JWKS through an httpx mock transport."""
 
-    def __init__(self, url, kid="key-1"):
+    def __init__(self, url, kid="key-1", key_name="default"):
         self.url = url
         self.kid = kid
-        self.private_key = (
-            cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key(
-                public_exponent=65537, key_size=2048
-            )
-        )
+        self.private_key = rsa_key(key_name)
         self.requests = []
 
     def jwks(self):
@@ -111,6 +108,13 @@ class TokenIssuer:
             algorithm="RS256",
             headers={"kid": kid or self.kid},
         )
+
+
+@functools.cache
+def rsa_key(_name):
+    return cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key(
+        public_exponent=65537, key_size=2048
+    )
 
 
 def mock_http_client(*issuers):

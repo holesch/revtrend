@@ -111,7 +111,7 @@ async def test_unknown_issuer(authenticator):
 
 
 async def test_forged_signature(authenticator, jenkins):
-    forger = conftest.TokenIssuer(jenkins.url)
+    forger = conftest.TokenIssuer(jenkins.url, key_name="forger")
     with pytest.raises(auth.AuthError, match="Signature"):
         await authenticator.authenticate(forger.token("revtrend"))
 
