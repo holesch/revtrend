@@ -18,6 +18,8 @@ import httpx
 import revtrend.store as store
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# [user@]host:path, which git treats as SSH when there is no slash before the colon
+SCP_LIKE_RE = re.compile(r"^[^/:]+:")
 LOGIN_TIMEOUT = 600
 POLL_TIMEOUT = 60
 # refresh access tokens that expire within this many seconds
@@ -41,7 +43,11 @@ def main(argv=None, http=None):
     push_parser = commands.add_parser(
         "push", help="push measurements of one run for a commit"
     )
-    push_parser.add_argument("--project", required=True)
+    push_parser.add_argument(
+        "-p",
+        "--project",
+        help="default: the project whose remote URL matches a git remote",
+    )
     push_parser.add_argument(
         "--sha", default="HEAD", help="commit, resolved in the current repository"
     )
@@ -60,7 +66,11 @@ def main(argv=None, http=None):
     compare_parser = commands.add_parser(
         "compare", help="compare a commit with its merge base on a base ref"
     )
-    compare_parser.add_argument("--project", required=True)
+    compare_parser.add_argument(
+        "-p",
+        "--project",
+        help="default: the project whose remote URL matches a git remote",
+    )
     compare_parser.add_argument(
         "--head", default="HEAD", help="commit, resolved in the current repository"
     )
@@ -345,14 +355,72 @@ def series_name(metric, labels):
 
 
 def api_request(http, args, method, path, **kwargs):
+    if args.project is None:
+        args.project = infer_project(http, args.url)
     project = urllib.parse.quote(args.project, safe="")
     response = http.request(
         method,
         f"{args.url}/api/v1/projects/{project}/{path}",
-        headers={"Authorization": f"Bearer {access_token(http, args.url)}"},
+        headers=auth_headers(http, args.url),
         **kwargs,
     )
     return check(response).json()
+
+
+def auth_headers(http, url):
+    return {"Authorization": f"Bearer {access_token(http, url)}"}
+
+
+def infer_project(http, url):
+    """The one project whose remote URL matches a remote of the current repository."""
+    keys = {repo_key(remote) for remote in git_remotes()}
+    response = http.get(f"{url}/api/v1/projects", headers=auth_headers(http, url))
+    matches = sorted(
+        p["name"]
+        for p in check(response).json()
+        if p.get("remote_url") and repo_key(p["remote_url"]) in keys
+    )
+    if len(matches) > 1:
+        raise CliError(
+            f"several projects match the git remotes ({', '.join(matches)}), "
+            "pass --project"
+        )
+    if not matches:
+        raise CliError(
+            "no project you can read matches the git remotes, pass --project"
+        )
+    return matches[0]
+
+
+def git_remotes():
+    result = subprocess.run(
+        ["git", "remote", "-v"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    remotes = {line.split()[1] for line in result.stdout.splitlines() if line.strip()}
+    if result.returncode or not remotes:
+        raise CliError("no git remotes to infer the project from, pass --project")
+    return remotes
+
+
+def repo_key(url):
+    """Host and path of a git URL, ignoring user, port, scheme and .git suffix.
+
+    Also drops the scm/ prefix of Bitbucket Server HTTP URLs, so they match
+    the SSH URLs of the same repository.
+    """
+    if "://" in url:
+        parts = urllib.parse.urlsplit(url)
+        host, path = parts.hostname or "", parts.path
+    elif SCP_LIKE_RE.match(url):
+        host, _, path = url.partition(":")
+        host = host.rpartition("@")[2]
+    else:
+        host, path = "", url
+    path = path.strip("/").removesuffix(".git").removeprefix("scm/")
+    return host.lower(), path.lower()
 
 
 def access_token(http, url):

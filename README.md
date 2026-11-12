@@ -55,10 +55,10 @@ pipx install revtrend
 export REVTREND_URL=https://revtrend.example
 
 revtrend login
-revtrend push --project myproject --sha HEAD \
+revtrend push --sha HEAD \
   --label machine:amd64 --label image:core-image \
   image.size_bytes=81234432 image.files=5321
-revtrend compare --project myproject --head HEAD --base release/1.0
+revtrend compare --head HEAD --base release/1.0
 ```
 
 `login` prints a URL to open in any browser, also from an ssh session: the
@@ -66,6 +66,10 @@ service receives the login redirect and relays the authorization code to the
 CLI, which redeems it with its PKCE verifier. Tokens are cached in
 `~/.cache/revtrend/sessions.json` and refreshed automatically.
 `$REVTREND_TOKEN` overrides the cached session.
+
+Both commands find the project whose remote URL matches a remote of the
+current repository, ignoring user, port and the Bitbucket `scm/` prefix;
+`--project` overrides it.
 
 `push` takes one or more `NAME=VALUE` metrics. `--label KEY:VALUE`
 applies to all metrics of the push; for metrics with different labels, push

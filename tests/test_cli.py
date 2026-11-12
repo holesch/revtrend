@@ -338,3 +338,60 @@ def test_compare_json(run, client, remote, graph, monkeypatch, capsys):
     assert result["head"]["sha"] == graph["x2"]
     (row,) = result["results"]
     assert row["delta"] == 10
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://git.example/scm/proj/repo.git",
+        "https://user@git.example/scm/proj/repo.git",
+        "https://Git.Example/scm/PROJ/repo",
+        "ssh://git@git.example:7999/proj/repo.git",
+        "git@git.example:proj/repo.git",
+        "git.example:/proj/repo.git/",
+    ],
+)
+def test_repo_key(url):
+    assert cli.repo_key(url) == ("git.example", "proj/repo")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://other.example/scm/proj/repo.git",
+        "https://git.example/scm/proj/other.git",
+        "/srv/git.example/proj/repo.git",
+    ],
+)
+def test_repo_key_differs(url):
+    assert cli.repo_key(url) != ("git.example", "proj/repo")
+
+
+def test_local_repo_key():
+    assert cli.repo_key("file:///srv/repo.git") == cli.repo_key("/srv/repo")
+
+
+def test_push_infers_project(run, client, remote, graph, monkeypatch):
+    run("login")
+    remote.git("remote", "add", "upstream", "https://git.example/other.git")
+    remote.git("remote", "add", "origin", remote.url)
+    monkeypatch.chdir(remote.path)
+    run("push", "--sha", graph["c3"], *METRICS)
+    assert len(series(client)) == 1
+
+
+def test_infer_project_no_match(run, remote, graph, monkeypatch, capsys):
+    run("login")
+    remote.git("remote", "add", "origin", "https://git.example/other.git")
+    monkeypatch.chdir(remote.path)
+    with pytest.raises(SystemExit):
+        run("push", "--sha", graph["c3"], *METRICS)
+    assert "no project you can read matches" in capsys.readouterr().err
+
+
+def test_infer_project_no_remotes(run, remote, graph, monkeypatch, capsys):
+    run("login")
+    monkeypatch.chdir(remote.path)
+    with pytest.raises(SystemExit):
+        run("compare", "--head", graph["c3"])
+    assert "no git remotes" in capsys.readouterr().err
