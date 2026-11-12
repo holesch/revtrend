@@ -30,6 +30,7 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "pydantic>=2.14.3",
     "PyJWT[crypto]",
+    "truststore>=0.10.5",
     "uvicorn",
 ]
 

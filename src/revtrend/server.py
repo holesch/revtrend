@@ -2,12 +2,14 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import ssl
 
 import fastapi
 import fastapi.encoders
 import fastapi.exceptions
 import fastapi.responses
 import httpx
+import truststore
 import uvicorn
 
 import revtrend.api as api
@@ -43,7 +45,10 @@ def create_app(cfg, http_client=None):
     async def lifespan(app):
         async with contextlib.AsyncExitStack() as stack:
             http = http_client or await stack.enter_async_context(
-                httpx.AsyncClient(timeout=10)
+                httpx.AsyncClient(
+                    verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
+                    timeout=10,
+                )
             )
             state = await stack.enter_async_context(running_state(cfg, http))
             app.state.revtrend = state

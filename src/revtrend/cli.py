@@ -8,12 +8,14 @@ import os
 import pathlib
 import re
 import secrets
+import ssl
 import subprocess
 import sys
 import time
 import urllib.parse
 
 import httpx
+import truststore
 
 import revtrend.store as store
 
@@ -93,7 +95,10 @@ def main(argv=None, http=None):
     if not args.url:
         parser.error("--url or REVTREND_URL required")
     args.url = args.url.rstrip("/")
-    http = http or httpx.Client(timeout=httpx.Timeout(10, read=POLL_TIMEOUT + 10))
+    http = http or httpx.Client(
+        verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
+        timeout=httpx.Timeout(10, read=POLL_TIMEOUT + 10),
+    )
     try:
         with http:
             args.func(args, http)
