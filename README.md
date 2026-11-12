@@ -10,8 +10,8 @@ selected ref, compared against a base ref.
 ## Service
 
 `revtrend-server --config /etc/revtrend/config.toml`, see
-[contrib/config.example.toml](contrib/config.example.toml) and
-[contrib/revtrend.service](contrib/revtrend.service).
+[contrib/config.example.toml](https://github.com/holesch/revtrend/blob/master/contrib/config.example.toml) and
+[contrib/revtrend.service](https://github.com/holesch/revtrend/blob/master/contrib/revtrend.service).
 
 All `/api/v1` endpoints require a bearer JWT from one of the configured
 issuers. Roles per project: `reader` < `writer` < `admin`.
