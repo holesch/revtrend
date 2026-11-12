@@ -203,6 +203,7 @@ def app_config(tmp_path, remote, jenkins, entra):
                     "issuer": entra.url,
                     "audience": "client-id",
                     "source": "manual",
+                    "display_claims": ["preferred_username", "name"],
                     "rules": [
                         {
                             "claim": "roles",

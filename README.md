@@ -43,6 +43,11 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
 The measurement `source` (`ci` or `manual`) is derived from the token issuer,
 never from the request. Per commit, CI runs take precedence over manual runs.
 
+Each measurement records the submitter as `<issuer name>:<sub>`, the stable
+OIDC identifier. For a readable audit trail, set `display_claims` on an issuer
+(e.g. `["preferred_username", "name"]`): the first claim present in the token
+is stored as `submitted_name`.
+
 ## CLI
 
 ```sh

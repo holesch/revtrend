@@ -27,6 +27,9 @@ name = "entra"
 issuer = "https://login.microsoftonline.com/<tenant-id>/v2.0"
 audience = "<revtrend app client id>"
 source = "manual"
+# Stored next to issuer:sub for the audit trail; the first claim present wins.
+# Which claims access tokens carry depends on the identity provider's setup.
+display_claims = ["preferred_username", "name"]
 
   [[issuers.rules]]
   claim = "roles"

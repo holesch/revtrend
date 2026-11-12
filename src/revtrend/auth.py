@@ -23,6 +23,7 @@ ALGORITHMS = [
     "EdDSA",
 ]
 LEEWAY = 60
+MAX_DISPLAY_NAME_LENGTH = 256
 JWKS_MIN_REFRESH_INTERVAL = 60
 
 
@@ -36,6 +37,7 @@ class Principal:
     subject: str
     source: str
     roles: dict[str, str]
+    display_name: str | None = None
 
     @property
     def submitted_by(self):
@@ -146,7 +148,17 @@ def principal(issuer, claims):
         subject=claims["sub"],
         source=source or issuer.source,
         roles=roles,
+        display_name=display_name(issuer, claims),
     )
+
+
+def display_name(issuer, claims):
+    """First configured claim with a string value, for humans reading the audit trail."""
+    for claim in issuer.display_claims:
+        value = claims.get(claim)
+        if isinstance(value, str) and value:
+            return value[:MAX_DISPLAY_NAME_LENGTH]
+    return None
 
 
 def matches(rule, value):

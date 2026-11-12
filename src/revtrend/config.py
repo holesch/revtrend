@@ -51,6 +51,7 @@ class Issuer:
     audience: str
     source: str
     rules: tuple[Rule, ...]
+    display_claims: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -125,6 +126,7 @@ def _parse_issuer(data, project_names):
         audience=data["audience"],
         source=source,
         rules=tuple(_parse_rule(r, project_names) for r in data.get("rules", [])),
+        display_claims=tuple(data.get("display_claims", [])),
     )
 
 

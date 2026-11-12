@@ -59,6 +59,26 @@ def test_manual_source_for_users(client, graph):
     assert response.status_code == 201
     assert {r["source"] for r in rows(client)} == {"manual"}
     assert rows(client)[0]["submitted_by"] == "entra:alice"
+    assert rows(client)[0]["submitted_name"] is None
+
+
+def test_submitted_name_from_display_claim(client, graph):
+    token = client.entra.token(
+        "client-id",
+        subject="alice",
+        roles=["writer"],
+        preferred_username="alice@example.com",
+    )
+    response = client.post(
+        URL, json=body(graph["c3"]), headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 201
+    assert {r["submitted_name"] for r in rows(client)} == {"alice@example.com"}
+
+
+def test_no_display_claims_for_ci(client, graph):
+    client.post(URL, json=body(graph["c3"]), headers=client.as_ci())
+    assert {r["submitted_name"] for r in rows(client)} == {None}
 
 
 def test_source_field_rejected(client, graph):

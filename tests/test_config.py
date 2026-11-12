@@ -31,6 +31,7 @@ name = "entra"
 issuer = "https://login.example/tenant/v2.0"
 audience = "client"
 source = "manual"
+display_claims = ["preferred_username", "name"]
 
   [[issuers.rules]]
   claim = "roles"
@@ -56,6 +57,8 @@ def test_load(tmp_path):
     assert cfg.cli_auth.scopes == ("api://revtrend/Metrics.Write", "offline_access")
     jenkins, entra = cfg.issuers
     assert jenkins.source == "ci"
+    assert jenkins.display_claims == ()
+    assert entra.display_claims == ("preferred_username", "name")
     assert jenkins.rules[0].regex.match(
         "https://jenkins.example/job/myproject/job/master"
     )

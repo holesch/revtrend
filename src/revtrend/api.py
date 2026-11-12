@@ -159,6 +159,7 @@ async def ingest(body: Measurements, access: WriterDep, response: fastapi.Respon
         run_id=body.run_id,
         source=principal.source,
         submitted_by=principal.submitted_by,
+        submitted_name=principal.display_name,
         measured_at=int(time.time()),
     )
     metrics = [(m.name, m.labels, m.value) for m in body.metrics]
@@ -176,6 +177,7 @@ async def ingest(body: Measurements, access: WriterDep, response: fastapi.Respon
             "run_id": body.run_id,
             "source": principal.source,
             "submitted_by": principal.submitted_by,
+            "submitted_name": principal.display_name,
         },
     )
     observability.INGESTED.labels(access.project.config.name, principal.source).inc(
@@ -453,6 +455,7 @@ async def delete_measurements(
             "run_id": run_id,
             "metric": metric,
             "submitted_by": access.principal.submitted_by,
+            "submitted_name": access.principal.display_name,
         },
     )
     return {"deleted": deleted}

@@ -27,6 +27,7 @@ def issuers(jenkins, entra):
             issuer=entra.url,
             audience="client-id",
             source="manual",
+            display_claims=("preferred_username", "name"),
             rules=(
                 config.Rule(
                     claim="roles",
@@ -146,3 +147,27 @@ async def test_unknown_kid_triggers_refresh(authenticator, jenkins, monkeypatch)
     jenkins.kid = "rotated"
     await authenticator.authenticate(jenkins.token("revtrend"))
     assert len(jenkins.requests) == 4
+
+
+@pytest.mark.parametrize(
+    ("claims", "expected"),
+    [
+        (
+            {"preferred_username": "alice@example.com", "name": "Alice"},
+            "alice@example.com",
+        ),
+        ({"name": "Alice"}, "Alice"),
+        ({"preferred_username": "", "name": "Alice"}, "Alice"),
+        ({"preferred_username": ["x"]}, None),
+        ({}, None),
+        ({"name": "a" * 1000}, "a" * auth.MAX_DISPLAY_NAME_LENGTH),
+    ],
+)
+async def test_display_name(authenticator, entra, claims, expected):
+    principal = await authenticator.authenticate(entra.token("client-id", **claims))
+    assert principal.display_name == expected
+
+
+async def test_no_display_claims_configured(authenticator, jenkins):
+    token = jenkins.token("revtrend", name="Jenkins")
+    assert (await authenticator.authenticate(token)).display_name is None

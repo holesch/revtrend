@@ -14,6 +14,7 @@ class Run:
     run_id: str
     source: str
     submitted_by: str
+    submitted_name: str | None
     measured_at: int
 
 
@@ -32,8 +33,8 @@ def insert_measurements(conn, run, metrics):
         labels = canonical_labels(labels)
         cursor = conn.execute(
             "INSERT INTO measurement"
-            " (project_id, sha, metric, labels, value, run_id, source, submitted_by, measured_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " (project_id, sha, metric, labels, value, run_id, source, submitted_by, submitted_name, measured_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT DO NOTHING",
             (
                 run.project_id,
@@ -44,6 +45,7 @@ def insert_measurements(conn, run, metrics):
                 run.run_id,
                 run.source,
                 run.submitted_by,
+                run.submitted_name,
                 run.measured_at,
             ),
         )
