@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import typing
+import urllib.parse
 
 import fastapi
 import fastapi.responses
@@ -323,10 +324,22 @@ def series_name(metric, labels):
 @router.get("/api/v1/projects")
 async def projects(state: StateDep, principal: PrincipalDep):
     return [
-        {"name": name, "default_branch": p.mirror.default_branch}
+        {
+            "name": name,
+            "default_branch": p.mirror.default_branch,
+            "remote_url": public_remote_url(p.config.remote_url),
+        }
         for name, p in state.projects.items()
         if principal.has_role(name, "reader")
     ]
+
+
+def public_remote_url(url):
+    """The remote URL without user info, which may carry a password or token."""
+    parts = urllib.parse.urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return parts._replace(netloc=parts.netloc.rpartition("@")[2]).geturl()
 
 
 @router.get("/api/v1/projects/{project}/refs")

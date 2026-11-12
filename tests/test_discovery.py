@@ -2,10 +2,33 @@ import time
 
 import pytest
 
+import revtrend.api as api
 
-def test_projects(client):
+
+def test_projects(client, remote):
     response = client.get("/api/v1/projects", headers=client.as_user("reader"))
-    assert response.json() == [{"name": "test", "default_branch": "master"}]
+    assert response.json() == [
+        {"name": "test", "default_branch": "master", "remote_url": remote.url}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://git.example/scm/proj/repo.git",
+            "https://git.example/scm/proj/repo.git",
+        ),
+        ("https://user:secret@git.example/repo.git", "https://git.example/repo.git"),
+        (
+            "ssh://git@git.example:7999/proj/repo.git",
+            "ssh://git.example:7999/proj/repo.git",
+        ),
+        ("git@git.example:proj/repo.git", "git@git.example:proj/repo.git"),
+    ],
+)
+def test_public_remote_url(url, expected):
+    assert api.public_remote_url(url) == expected
 
 
 def test_projects_filtered_by_role(client):
