@@ -135,18 +135,10 @@ def series(client, metric="image.size_bytes"):
     return response.json()
 
 
-@pytest.fixture
-def metrics_file(tmp_path):
-    path = tmp_path / "metrics.json"
-    path.write_text(
-        json.dumps(
-            [{"name": "image.size_bytes", "value": 42, "labels": {"machine": "amd64"}}]
-        )
-    )
-    return path
+METRICS = ["--label", "machine:amd64", "image.size_bytes=42"]
 
 
-def test_push(run, client, graph, metrics_file, capsys):
+def test_push(run, client, graph, capsys):
     run("login")
     run(
         "push",
@@ -156,7 +148,7 @@ def test_push(run, client, graph, metrics_file, capsys):
         graph["c3"],
         "--run-id",
         "r1",
-        str(metrics_file),
+        *METRICS,
     )
     assert (
         capsys.readouterr().out
@@ -170,7 +162,7 @@ def test_push(run, client, graph, metrics_file, capsys):
         graph["c3"],
         "--run-id",
         "r1",
-        str(metrics_file),
+        *METRICS,
     )
     assert "0 created, 1 already present" in capsys.readouterr().out
     (row,) = series(client)
@@ -179,45 +171,45 @@ def test_push(run, client, graph, metrics_file, capsys):
     assert row["source"] == "manual"
 
 
-def test_push_resolves_rev(run, client, remote, graph, metrics_file, monkeypatch):
+def test_push_resolves_rev(run, client, remote, graph, monkeypatch):
     run("login")
     monkeypatch.chdir(remote.path)
-    run("push", "--project", "test", "--sha", "master~1", str(metrics_file))
+    run("push", "--project", "test", "--sha", "master~1", *METRICS)
     (row,) = series(client)
     assert row["sha"] == graph["m1"]
 
 
-def test_push_default_run_id(run, graph, metrics_file, capsys):
+def test_push_default_run_id(run, graph, capsys):
     run("login")
-    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert " manual-" in capsys.readouterr().out
 
 
-def test_push_unknown_rev(run, remote, metrics_file, monkeypatch, capsys):
+def test_push_unknown_rev(run, remote, monkeypatch, capsys):
     run("login")
     monkeypatch.chdir(remote.path)
     with pytest.raises(SystemExit):
-        run("push", "--project", "test", "--sha", "nope", str(metrics_file))
+        run("push", "--project", "test", "--sha", "nope", *METRICS)
     assert "cannot resolve 'nope'" in capsys.readouterr().err
 
 
-def test_push_server_error(run, metrics_file, capsys):
+def test_push_server_error(run, capsys):
     run("login")
     with pytest.raises(SystemExit):
-        run("push", "--project", "test", "--sha", "0" * 40, str(metrics_file))
+        run("push", "--project", "test", "--sha", "0" * 40, *METRICS)
     assert "(409)" in capsys.readouterr().err
 
 
-def test_push_requires_login(run, graph, metrics_file, capsys):
+def test_push_requires_login(run, graph, capsys):
     with pytest.raises(SystemExit):
-        run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+        run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert "not logged in" in capsys.readouterr().err
 
 
-def test_push_token_from_env(run, client, graph, metrics_file, monkeypatch):
+def test_push_token_from_env(run, client, graph, monkeypatch):
     token = client.as_user("writer")["Authorization"].removeprefix("Bearer ")
     monkeypatch.setenv("REVTREND_TOKEN", token)
-    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert len(series(client)) == 1
 
 
@@ -228,11 +220,11 @@ def expire_session(tmp_path):
     path.write_text(json.dumps(data))
 
 
-def test_refresh(run, client, auth_server, graph, metrics_file, tmp_path):
+def test_refresh(run, client, auth_server, graph, tmp_path):
     run("login")
     old = sessions(tmp_path)[URL]["refresh_token"]
     expire_session(tmp_path)
-    run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+    run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert auth_server.token_requests[-1]["grant_type"] == "refresh_token"
     session = sessions(tmp_path)[URL]
     assert session["refresh_token"] not in (None, old)
@@ -240,21 +232,72 @@ def test_refresh(run, client, auth_server, graph, metrics_file, tmp_path):
     assert len(series(client)) == 1
 
 
-def test_refresh_rejected(run, auth_server, graph, metrics_file, tmp_path, capsys):
+def test_refresh_rejected(run, auth_server, graph, tmp_path, capsys):
     run("login")
     auth_server.refresh_tokens.clear()
     expire_session(tmp_path)
     with pytest.raises(SystemExit):
-        run("push", "--project", "test", "--sha", graph["c3"], str(metrics_file))
+        run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert "session expired, run 'revtrend login'" in capsys.readouterr().err
 
 
-def test_push_invalid_file(run, graph, tmp_path, capsys):
-    path = tmp_path / "metrics.json"
-    path.write_text('{"metrics": []}')
+def test_push_labels(run, client, graph):
+    run("login")
+    run(
+        "push",
+        "--project",
+        "test",
+        "--sha",
+        graph["c3"],
+        "--label",
+        "machine:amd64",
+        "--label",
+        "image:core-image",
+        "image.size_bytes=42",
+        "image.files=1.5",
+    )
+    (row,) = series(client)
+    assert row["labels"] == {"machine": "amd64", "image": "core-image"}
+    (row,) = series(client, metric="image.files")
+    assert row["value"] == 1.5
+
+
+@pytest.mark.parametrize(
+    "metric", ["image.size_bytes", "image.size_bytes=", "=1", "x=abc", "x=nan", "x=inf"]
+)
+def test_push_invalid_metric(run, graph, metric, capsys):
     with pytest.raises(SystemExit):
-        run("push", "--project", "test", "--sha", graph["c3"], str(path))
-    assert "expected a JSON array" in capsys.readouterr().err
+        run("push", "--project", "test", "--sha", graph["c3"], metric)
+    assert "expected NAME=VALUE" in capsys.readouterr().err
+
+
+def test_push_invalid_label(run, graph, capsys):
+    with pytest.raises(SystemExit):
+        run(
+            "push",
+            "--project",
+            "test",
+            "--sha",
+            graph["c3"],
+            "--label",
+            "machine",
+            "x=1",
+        )
+    assert "expected KEY:VALUE" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    [
+        (["x=1", "x=2"], "duplicate metric: x"),
+        (["--label", "a:1", "--label", "a:2", "x=1"], "duplicate label: a"),
+    ],
+)
+def test_push_duplicates(run, graph, args, error, capsys):
+    run("login")
+    with pytest.raises(SystemExit):
+        run("push", "--project", "test", "--sha", graph["c3"], *args)
+    assert error in capsys.readouterr().err
 
 
 def test_compare(run, client, graph, capsys):

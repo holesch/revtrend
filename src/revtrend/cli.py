@@ -3,6 +3,7 @@ import base64
 import getpass
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -47,9 +48,13 @@ def main(argv=None, http=None):
     push_parser.add_argument(
         "--run-id", help="default: manual-<user>-<timestamp>; reuse it to retry"
     )
+    push_parser.add_argument("metric", nargs="+", type=metric_arg, metavar="NAME=VALUE")
     push_parser.add_argument(
-        "file",
-        help='JSON array of {"name", "value", "labels"} metrics, "-" for stdin',
+        "--label",
+        action="append",
+        type=label_arg,
+        metavar="KEY:VALUE",
+        help="repeatable, applies to all metrics",
     )
     push_parser.set_defaults(func=push)
     compare_parser = commands.add_parser(
@@ -212,7 +217,7 @@ def load_sessions():
 
 
 def push(args, http):
-    metrics = read_metrics(args.file)
+    metrics = build_metrics(args.metric, args.label or [])
     sha = resolve_commit(args.sha)
     run_id = args.run_id or default_run_id()
     result = api_request(
@@ -228,12 +233,35 @@ def push(args, http):
     )
 
 
-def read_metrics(path):
-    text = sys.stdin.read() if path == "-" else pathlib.Path(path).read_text()
-    metrics = json.loads(text)
-    if not isinstance(metrics, list):
-        raise CliError(f"{path}: expected a JSON array of metrics")
-    return metrics
+def metric_arg(value):
+    name, sep, number = value.partition("=")
+    try:
+        parsed = float(number)
+    except ValueError:
+        parsed = None
+    if not (name and sep and parsed is not None and math.isfinite(parsed)):
+        raise argparse.ArgumentTypeError(
+            f"{value!r}, expected NAME=VALUE with a finite number"
+        )
+    return name, parsed
+
+
+def label_arg(value):
+    key, sep, label_value = value.partition(":")
+    if not (key and sep):
+        raise argparse.ArgumentTypeError(f"{value!r}, expected KEY:VALUE")
+    return key, label_value
+
+
+def build_metrics(metrics, labels):
+    for kind, pairs in (("metric", metrics), ("label", labels)):
+        keys = [key for key, _ in pairs]
+        if duplicates := sorted({k for k in keys if keys.count(k) > 1}):
+            raise CliError(f"duplicate {kind}: {', '.join(duplicates)}")
+    return [
+        {"name": name, "value": value, "labels": dict(labels)}
+        for name, value in metrics
+    ]
 
 
 def resolve_commit(rev):

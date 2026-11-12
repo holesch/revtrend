@@ -55,7 +55,9 @@ pipx install revtrend
 export REVTREND_URL=https://revtrend.example
 
 revtrend login
-revtrend push --project myproject --sha HEAD metrics.json
+revtrend push --project myproject --sha HEAD \
+  --label machine:amd64 --label image:core-image \
+  image.size_bytes=81234432 image.files=5321
 revtrend compare --project myproject --head HEAD --base release/1.0
 ```
 
@@ -65,12 +67,9 @@ CLI, which redeems it with its PKCE verifier. Tokens are cached in
 `~/.cache/revtrend/sessions.json` and refreshed automatically.
 `$REVTREND_TOKEN` overrides the cached session.
 
-`push` takes a JSON array of metrics (`-` reads stdin):
-
-```json
-[{"name": "image.size_bytes", "value": 81234432,
-  "labels": {"machine": "amd64", "image": "core-image"}}]
-```
+`push` takes one or more `NAME=VALUE` metrics. `--label KEY:VALUE`
+applies to all metrics of the push; for metrics with different labels, push
+once per label set.
 
 `--sha` and `--head` are resolved in the current repository, so backfilling
 means checking out an old commit, measuring and pushing. The commit must exist
