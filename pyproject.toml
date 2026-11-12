@@ -7,7 +7,23 @@ name = "revtrend"
 version = "0.1.0"
 description = "Track numeric metrics per git commit and visualize trends in Grafana"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Simon Holesch", email = "simon@holesch.de" }]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "fastapi",
     "httpx",
@@ -16,6 +32,11 @@ dependencies = [
     "PyJWT[crypto]",
     "uvicorn",
 ]
+
+[project.urls]
+Homepage = "https://github.com/holesch/revtrend"
+Source = "https://github.com/holesch/revtrend"
+Issues = "https://github.com/holesch/revtrend/issues"
 
 [project.scripts]
 revtrend = "revtrend.cli:main"
