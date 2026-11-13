@@ -25,12 +25,16 @@ classifiers = [
     "Topic :: System :: Monitoring",
 ]
 dependencies = [
-    "fastapi",
     "httpx",
+    "truststore>=0.10.5",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi",
     "prometheus-client>=0.26.0",
     "pydantic>=2.14.3",
     "PyJWT[crypto]",
-    "truststore>=0.10.5",
     "uvicorn",
 ]
 
@@ -45,6 +49,7 @@ revtrend-server = "revtrend.server:main"
 
 [dependency-groups]
 dev = [
+    "revtrend[server]",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1.post1",
     "ruff==0.14.7",

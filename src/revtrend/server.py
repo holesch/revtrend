@@ -4,13 +4,19 @@ import contextlib
 import logging
 import ssl
 
-import fastapi
-import fastapi.encoders
-import fastapi.exceptions
-import fastapi.responses
 import httpx
 import truststore
-import uvicorn
+
+try:
+    import fastapi
+    import fastapi.encoders
+    import fastapi.exceptions
+    import fastapi.responses
+    import uvicorn
+except ModuleNotFoundError as e:
+    raise SystemExit(
+        f"revtrend-server: {e.name} is missing, install 'revtrend[server]'"
+    ) from e
 
 import revtrend.api as api
 import revtrend.auth as auth

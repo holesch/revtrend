@@ -556,12 +556,16 @@ name = "revtrend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "fastapi" },
     { name = "httpx" },
+    { name = "truststore" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "fastapi" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
-    { name = "truststore" },
     { name = "uvicorn" },
 ]
 
@@ -569,24 +573,27 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "revtrend", extra = ["server"] },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi" },
+    { name = "fastapi", marker = "extra == 'server'" },
     { name = "httpx" },
-    { name = "prometheus-client", specifier = ">=0.26.0" },
-    { name = "pydantic", specifier = ">=2.14.3" },
-    { name = "pyjwt", extras = ["crypto"] },
+    { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.26.0" },
+    { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.14.3" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'server'" },
     { name = "truststore", specifier = ">=0.10.5" },
-    { name = "uvicorn" },
+    { name = "uvicorn", marker = "extra == 'server'" },
 ]
+provides-extras = ["server"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "pytest-asyncio", specifier = ">=1.4.1.post1" },
+    { name = "revtrend", extras = ["server"] },
     { name = "ruff", specifier = "==0.14.7" },
 ]
 
