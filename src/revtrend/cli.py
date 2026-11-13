@@ -54,7 +54,10 @@ def main(argv=None, http=None):
         "--sha", default="HEAD", help="commit, resolved in the current repository"
     )
     push_parser.add_argument(
-        "--run-id", help="default: manual-<user>-<timestamp>; reuse it to retry"
+        "--run-id",
+        default=os.environ.get("REVTREND_RUN_ID"),
+        help="default: $REVTREND_RUN_ID or manual-<user>-<timestamp>; "
+        "reuse it to retry",
     )
     push_parser.add_argument("metric", nargs="+", type=metric_arg, metavar="NAME=VALUE")
     push_parser.add_argument(

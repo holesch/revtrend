@@ -76,6 +76,7 @@ def auth_server(entra):
 def run(client, auth_server, tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.delenv("REVTREND_TOKEN", raising=False)
+    monkeypatch.delenv("REVTREND_RUN_ID", raising=False)
 
     def browser(url):
         client.get("/auth/cli/callback", params=auth_server.authorize(url))
@@ -183,6 +184,13 @@ def test_push_default_run_id(run, graph, capsys):
     run("login")
     run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
     assert " manual-" in capsys.readouterr().out
+
+
+def test_push_run_id_from_env(run, graph, monkeypatch, capsys):
+    run("login")
+    monkeypatch.setenv("REVTREND_RUN_ID", "https://ci.example/job/1/")
+    run("push", "--project", "test", "--sha", graph["c3"], *METRICS)
+    assert " https://ci.example/job/1/: 1 created" in capsys.readouterr().out
 
 
 def test_push_unknown_rev(run, remote, monkeypatch, capsys):
