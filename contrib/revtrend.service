@@ -10,6 +10,8 @@ ExecStart=/opt/revtrend/venv/bin/revtrend-server --config /etc/revtrend/config.t
 Restart=on-failure
 Environment=HOME=/var/lib/revtrend
 StateDirectory=revtrend
+StateDirectoryMode=0750
+UMask=0027
 ProtectSystem=strict
 ReadWritePaths=/var/lib/revtrend
 ProtectHome=true
