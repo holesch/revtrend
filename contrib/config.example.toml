@@ -1,4 +1,4 @@
-# /etc/revtrend/config.toml (root:revtrend 0640)
+# /etc/revtrend/config.toml (root:root 0644, holds no secrets)
 
 [server]
 listen = "127.0.0.1:8080"                # behind a reverse proxy with TLS
@@ -49,6 +49,6 @@ display_claims = ["preferred_username", "name"]
 [[projects]]
 name = "myproject"
 remote_url = "https://git.example/scm/myproject.git"
-credentials_file = "/etc/revtrend/myproject.token"   # read-only HTTP access token, 0600
+credentials_file = "/etc/revtrend/myproject.token"   # read-only HTTP access token, root:revtrend 0640
 fetch_interval = "5m"
 compare_max_walk = 50
