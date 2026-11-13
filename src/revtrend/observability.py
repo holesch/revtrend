@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 import time
@@ -40,26 +39,49 @@ _RECORD_ATTRIBUTES = set(vars(logging.makeLogRecord({}))) | {
 
 def setup_logging(level=logging.INFO):
     handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
+    handler.setFormatter(TextFormatter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
 
 
-class JsonFormatter(logging.Formatter):
+# syslog priorities, which journald reads from a "<N>" line prefix.
+_PRIORITIES = {
+    logging.CRITICAL: 2,
+    logging.ERROR: 3,
+    logging.WARNING: 4,
+    logging.INFO: 6,
+    logging.DEBUG: 7,
+}
+
+
+class TextFormatter(logging.Formatter):
+    """Logger, message and `extra` as key=value, behind a syslog priority.
+
+    No timestamp, journald adds its own. journald stores every line as its
+    own entry, so traceback lines get the prefix too.
+    """
+
     def format(self, record):
-        entry = {
-            "time": datetime.datetime.fromtimestamp(
-                record.created, datetime.UTC
-            ).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        entry.update(
-            {k: v for k, v in vars(record).items() if k not in _RECORD_ATTRIBUTES}
-        )
+        text = f"{record.name}: {record.getMessage()}"
+        for key, value in vars(record).items():
+            if key not in _RECORD_ATTRIBUTES and value is not None:
+                text += f" {key}={_quote(str(value))}"
         if record.exc_info:
-            entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(entry, default=str)
+            text += "\n" + self.formatException(record.exc_info)
+        prefix = f"<{_priority(record.levelno)}>"
+        return "\n".join(prefix + line for line in text.splitlines())
+
+
+def _priority(levelno):
+    for level, priority in _PRIORITIES.items():
+        if levelno >= level:
+            return priority
+    return 7
+
+
+def _quote(value):
+    if value and not any(c.isspace() or c in '"=' for c in value):
+        return value
+    return json.dumps(value)
 
 
 class MetricsMiddleware:
