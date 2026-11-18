@@ -457,3 +457,35 @@ def test_metrics_json(run, client, graph, capsys):
     run("metrics", "--project", "test", "--json")
     (metric,) = json.loads(capsys.readouterr().out)
     assert metric["values"] == 1
+
+
+def test_runs(run, client, remote, graph, utc, monkeypatch, capsys):
+    conftest.push(client, graph["c2"], 1, run_id="first")
+    conftest.push(client, graph["c3"], 2, run_id="second")
+    conftest.push(client, graph["c3"], 3, run_id="second", metric="image.files")
+    set_measured_at(client, "first", 1_700_000_000)
+    set_measured_at(client, "second", 1_700_000_600)
+    run("login")
+    run("push", "--project", "test", "--sha", graph["c3"], "--run-id", "mine", *METRICS)
+    set_measured_at(client, "mine", 1_700_001_200)
+    capsys.readouterr()
+    run("runs", "--project", "test")
+    assert capsys.readouterr().out == (
+        "measured          sha       source  values  submitted by             run id\n"
+        f"2023-11-14 22:33  {graph['c3'][:8]}  manual       1  entra:alice              mine\n"
+        f"2023-11-14 22:23  {graph['c3'][:8]}  ci           2  jenkins:job/test/master  second\n"
+        f"2023-11-14 22:13  {graph['c2'][:8]}  ci           1  jenkins:job/test/master  first\n"
+    )
+    monkeypatch.chdir(remote.path)
+    run("runs", "--project", "test", "--sha", "master~1", "--json")
+    assert json.loads(capsys.readouterr().out) == []
+    run("runs", "--project", "test", "--sha", "master", "-n", "1", "--json")
+    (result,) = json.loads(capsys.readouterr().out)
+    assert result["run_id"] == "mine"
+
+
+def test_runs_empty(run, capsys):
+    run("login")
+    capsys.readouterr()
+    run("runs", "--project", "test")
+    assert capsys.readouterr().err == "no runs in project test\n"

@@ -101,6 +101,17 @@ def main(argv=None, http=None):
     )
     metrics_parser.add_argument("--json", action="store_true", help="raw response")
     metrics_parser.set_defaults(func=list_metrics)
+    runs_parser = commands.add_parser(
+        "runs", parents=[project_parser], help="list the latest runs"
+    )
+    runs_parser.add_argument(
+        "--sha", help="only runs of this commit, resolved in the current repository"
+    )
+    runs_parser.add_argument(
+        "-n", "--limit", type=int, default=20, help="number of runs (default: 20)"
+    )
+    runs_parser.add_argument("--json", action="store_true", help="raw response")
+    runs_parser.set_defaults(func=list_runs)
     args = parser.parse_args(argv)
     if not args.url:
         parser.error("--url or REVTREND_URL required")
@@ -380,6 +391,32 @@ def list_metrics(args, http):
         for m in result
     ]
     sys.stdout.write(table(rows, "<>>><"))
+
+
+def list_runs(args, http):
+    params = {"limit": args.limit}
+    if args.sha:
+        params["sha"] = resolve_commit(args.sha)
+    result = api_request(http, args, "GET", "runs", params=params)
+    if args.json:
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+        return
+    if not result:
+        sys.stderr.write(f"no runs in project {args.project}\n")
+        return
+    rows = [("measured", "sha", "source", "values", "submitted by", "run id")]
+    rows += [
+        (
+            local_time(r["measured_at"]),
+            r["short"],
+            r["source"],
+            str(r["values"]),
+            r["submitted_name"] or r["submitted_by"],
+            r["run_id"],
+        )
+        for r in result
+    ]
+    sys.stdout.write(table(rows, "<<<><<"))
 
 
 def local_time(ms):

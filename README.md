@@ -77,10 +77,12 @@ for scripts.
 
 ```
 revtrend metrics [--json]
+revtrend runs [--sha REV] [--limit N] [--json]
 ```
 
-lists each metric with its number of series, measured commits and values,
-and when it was last pushed.
+`metrics` lists each metric with its number of series, measured commits and
+values, and when it was last pushed. `runs` lists the latest runs, optionally
+only those of one commit, with their run ids.
 
 ## In CI
 
@@ -200,6 +202,7 @@ reverse proxy.
 | `GET /api/v1/projects` | any | projects the caller can read |
 | `GET /api/v1/projects/{project}/refs` | reader | branches (`active_since`, `match`) |
 | `GET /api/v1/projects/{project}/metrics` | reader | metric names, label values and counts |
+| `GET /api/v1/projects/{project}/runs` | reader | latest runs (`sha`, `limit`) |
 | `DELETE /api/v1/projects/{project}/measurements` | admin | delete by `run_id` or `metric` |
 | `GET /auth/cli/{config,callback,poll}` | none | PKCE code relay for `revtrend login` |
 | `GET /healthz`, `GET /metrics` | none | health and Prometheus metrics |

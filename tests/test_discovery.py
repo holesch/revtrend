@@ -130,3 +130,72 @@ def test_metrics(client, graph):
             "values": 1,
         },
     ]
+
+
+def get_runs(client, **params):
+    return client.get(
+        "/api/v1/projects/test/runs", params=params, headers=client.as_user("reader")
+    )
+
+
+def test_runs(client, graph):
+    conftest.push(client, graph["c2"], 1, run_id="first")
+    conftest.push(client, graph["c3"], 2, run_id="second")
+    conftest.push(client, graph["c3"], 3, run_id="second", metric="image.files")
+    conftest.push(
+        client, graph["c3"], 4, run_id="manual", headers=client.as_user("writer")
+    )
+    result = get_runs(client).json()
+    for run in result:
+        assert abs(run.pop("measured_at") / 1000 - time.time()) < 60
+    assert result == [
+        {
+            "run_id": "manual",
+            "sha": graph["c3"],
+            "short": graph["c3"][:8],
+            "source": "manual",
+            "submitted_by": "entra:alice",
+            "submitted_name": None,
+            "values": 1,
+        },
+        {
+            "run_id": "second",
+            "sha": graph["c3"],
+            "short": graph["c3"][:8],
+            "source": "ci",
+            "submitted_by": "jenkins:job/test/master",
+            "submitted_name": None,
+            "values": 2,
+        },
+        {
+            "run_id": "first",
+            "sha": graph["c2"],
+            "short": graph["c2"][:8],
+            "source": "ci",
+            "submitted_by": "jenkins:job/test/master",
+            "submitted_name": None,
+            "values": 1,
+        },
+    ]
+
+
+def test_runs_filtered(client, graph):
+    conftest.push(client, graph["c2"], 1, run_id="first")
+    conftest.push(client, graph["c3"], 2, run_id="second")
+    conftest.push(client, graph["c3"], 3, run_id="third")
+    runs = get_runs(client, sha=graph["c2"]).json()
+    assert [r["run_id"] for r in runs] == ["first"]
+    runs = get_runs(client, limit=2).json()
+    assert [r["run_id"] for r in runs] == ["third", "second"]
+
+
+@pytest.mark.parametrize(
+    "params", [{"sha": "master"}, {"limit": 0}, {"limit": api.MAX_RUNS + 1}]
+)
+def test_runs_invalid(client, params):
+    assert get_runs(client, **params).status_code == 400
+
+
+def test_runs_requires_reader(client):
+    response = client.get("/api/v1/projects/test/runs", headers=client.as_user())
+    assert response.status_code == 403

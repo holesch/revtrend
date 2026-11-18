@@ -27,6 +27,7 @@ router = fastapi.APIRouter()
 
 FETCH_TIMEOUT = 60
 MAX_POLL_TIMEOUT = 60
+MAX_RUNS = 1000
 ON_DEMAND_FETCH_INTERVAL = 30
 METRIC_RE = re.compile(r"^[a-z0-9_.]+$")
 LABEL_KEY_RE = re.compile(r"^[a-z0-9_]+$")
@@ -371,6 +372,15 @@ async def refs(
 @router.get("/api/v1/projects/{project}/metrics")
 async def metrics(access: ReaderDep):
     return await access.state.db.read(store.metrics, access.project.id)
+
+
+@router.get("/api/v1/projects/{project}/runs")
+async def runs(
+    access: ReaderDep,
+    sha: typing.Annotated[Sha | None, fastapi.Query()] = None,
+    limit: typing.Annotated[int, fastapi.Query(ge=1, le=MAX_RUNS)] = 20,
+):
+    return await access.state.db.read(store.runs, access.project.id, sha, limit)
 
 
 @router.get("/api/v1/projects/{project}/compare")

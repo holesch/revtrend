@@ -160,6 +160,35 @@ def metrics(conn, project_id):
     ]
 
 
+def runs(conn, project_id, sha=None, limit=20):
+    """Runs with their number of values, latest first."""
+    sql = (
+        "SELECT run_id, sha, min(source) AS source, min(submitted_by) AS submitted_by,"
+        " min(submitted_name) AS submitted_name, count(*) AS n,"
+        " max(measured_at) AS measured_at"
+        " FROM measurement WHERE project_id = ?"
+    )
+    params = [project_id]
+    if sha is not None:
+        sql += " AND sha = ?"
+        params.append(sha)
+    sql += " GROUP BY run_id, sha ORDER BY max(measured_at) DESC, max(id) DESC LIMIT ?"
+    params.append(limit)
+    return [
+        {
+            "run_id": row["run_id"],
+            "sha": row["sha"],
+            "short": row["sha"][:8],
+            "source": row["source"],
+            "submitted_by": row["submitted_by"],
+            "submitted_name": row["submitted_name"],
+            "values": row["n"],
+            "measured_at": row["measured_at"] * 1000,
+        }
+        for row in conn.execute(sql, params)
+    ]
+
+
 def delete_measurements(conn, project_id, run_id=None, metric=None):
     sql = "DELETE FROM measurement WHERE project_id = ?"
     params = [project_id]
