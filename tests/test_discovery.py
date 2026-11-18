@@ -1,5 +1,6 @@
 import time
 
+import conftest
 import pytest
 
 import revtrend.api as api
@@ -106,13 +107,26 @@ def test_metrics(client, graph):
         ],
     }
     client.post("/api/v1/projects/test/measurements", json=body, headers=client.as_ci())
+    conftest.push(client, graph["c2"], 1, run_id="other")
     response = client.get(
         "/api/v1/projects/test/metrics", headers=client.as_user("reader")
     )
-    assert response.json() == [
+    result = response.json()
+    for metric in result:
+        assert abs(metric.pop("last_measured_at") / 1000 - time.time()) < 60
+    assert result == [
         {
             "name": "image.size_bytes",
             "labels": {"image": ["a"], "machine": ["amd64", "arm64"]},
+            "series": 3,
+            "commits": 2,
+            "values": 3,
         },
-        {"name": "test.duration_seconds", "labels": {}},
+        {
+            "name": "test.duration_seconds",
+            "labels": {},
+            "series": 1,
+            "commits": 1,
+            "values": 1,
+        },
     ]

@@ -127,22 +127,36 @@ AGGREGATIONS = {
 
 
 def metrics(conn, project_id):
-    """Metric names with the values seen per label key."""
+    """Metric names with the values seen per label key and how much data there is."""
     rows = conn.execute(
         "SELECT DISTINCT metric, labels FROM measurement WHERE project_id = ?",
         (project_id,),
     )
-    result = {}
+    labels_by_metric = {}
     for row in rows:
-        labels = result.setdefault(row["metric"], {})
+        labels = labels_by_metric.setdefault(row["metric"], {})
         for key, value in json.loads(row["labels"]).items():
             labels.setdefault(key, set()).add(value)
+    counts = conn.execute(
+        "SELECT metric, count(DISTINCT labels) AS series,"
+        " count(DISTINCT sha) AS commits, count(*) AS n,"
+        " max(measured_at) AS last_measured_at"
+        " FROM measurement WHERE project_id = ? GROUP BY metric ORDER BY metric",
+        (project_id,),
+    )
     return [
         {
-            "name": name,
-            "labels": {key: sorted(values) for key, values in sorted(labels.items())},
+            "name": row["metric"],
+            "labels": {
+                key: sorted(values)
+                for key, values in sorted(labels_by_metric[row["metric"]].items())
+            },
+            "series": row["series"],
+            "commits": row["commits"],
+            "values": row["n"],
+            "last_measured_at": row["last_measured_at"] * 1000,
         }
-        for name, labels in sorted(result.items())
+        for row in counts
     ]
 
 

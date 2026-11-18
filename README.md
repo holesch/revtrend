@@ -73,6 +73,15 @@ commit at or before that fork point. A `(N back)` note in the baseline column
 means the fork point itself wasn't measured. `--json` prints the raw response
 for scripts.
 
+### Checking what's there
+
+```
+revtrend metrics [--json]
+```
+
+lists each metric with its number of series, measured commits and values,
+and when it was last pushed.
+
 ## In CI
 
 The CLI reads its settings from the environment, so a CI job only needs three
@@ -190,7 +199,7 @@ reverse proxy.
 | `GET /api/v1/projects/{project}/compare` | reader | head vs. nearest measured commit from the merge base with `base` |
 | `GET /api/v1/projects` | any | projects the caller can read |
 | `GET /api/v1/projects/{project}/refs` | reader | branches (`active_since`, `match`) |
-| `GET /api/v1/projects/{project}/metrics` | reader | metric names and label values |
+| `GET /api/v1/projects/{project}/metrics` | reader | metric names, label values and counts |
 | `DELETE /api/v1/projects/{project}/measurements` | admin | delete by `run_id` or `metric` |
 | `GET /auth/cli/{config,callback,poll}` | none | PKCE code relay for `revtrend login` |
 | `GET /healthz`, `GET /metrics` | none | health and Prometheus metrics |

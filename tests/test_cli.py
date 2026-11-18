@@ -3,6 +3,7 @@ import hashlib
 import json
 import secrets
 import stat
+import time
 import urllib.parse
 
 import conftest
@@ -403,3 +404,56 @@ def test_infer_project_no_remotes(run, remote, graph, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         run("compare", "--head", graph["c3"])
     assert "no git remotes" in capsys.readouterr().err
+
+
+@pytest.fixture
+def utc(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def set_measured_at(client, run_id, timestamp):
+    conn = client.app.state.revtrend.db._writer
+    with conn:
+        conn.execute(
+            "UPDATE measurement SET measured_at = ? WHERE run_id = ?",
+            (timestamp, run_id),
+        )
+
+
+def test_metrics(run, client, graph, utc, capsys):
+    conftest.push(client, graph["c2"], 40)
+    conftest.push(client, graph["c3"], 41)
+    conftest.push(client, graph["c3"], 42, run_id="retry")
+    conftest.push(client, graph["c3"], 1, machine="arm64", metric="image.files")
+    set_measured_at(client, "run", 1_700_000_000)
+    set_measured_at(client, "retry", 1_700_000_600)
+    run("login")
+    capsys.readouterr()
+    run("metrics", "--project", "test")
+    assert capsys.readouterr().out == (
+        "metric            series  commits  values  last measured\n"
+        "image.files            1        1       1  2023-11-14 22:13\n"
+        "image.size_bytes       1        2       3  2023-11-14 22:23\n"
+    )
+
+
+def test_metrics_empty(run, capsys):
+    run("login")
+    capsys.readouterr()
+    run("metrics", "--project", "test")
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == "no measurements in project test\n"
+
+
+def test_metrics_json(run, client, graph, capsys):
+    conftest.push(client, graph["c3"], 42)
+    run("login")
+    capsys.readouterr()
+    run("metrics", "--project", "test", "--json")
+    (metric,) = json.loads(capsys.readouterr().out)
+    assert metric["values"] == 1

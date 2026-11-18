@@ -94,6 +94,13 @@ def main(argv=None, http=None):
     )
     compare_parser.add_argument("--json", action="store_true", help="raw response")
     compare_parser.set_defaults(func=compare)
+    metrics_parser = commands.add_parser(
+        "metrics",
+        parents=[project_parser],
+        help="list metrics and how much data there is",
+    )
+    metrics_parser.add_argument("--json", action="store_true", help="raw response")
+    metrics_parser.set_defaults(func=list_metrics)
     args = parser.parse_args(argv)
     if not args.url:
         parser.error("--url or REVTREND_URL required")
@@ -351,6 +358,32 @@ def table(rows, align):
         ]
         lines.append("  ".join(cells).rstrip() + "\n")
     return "".join(lines)
+
+
+def list_metrics(args, http):
+    result = api_request(http, args, "GET", "metrics")
+    if args.json:
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+        return
+    if not result:
+        sys.stderr.write(f"no measurements in project {args.project}\n")
+        return
+    rows = [("metric", "series", "commits", "values", "last measured")]
+    rows += [
+        (
+            m["name"],
+            str(m["series"]),
+            str(m["commits"]),
+            str(m["values"]),
+            local_time(m["last_measured_at"]),
+        )
+        for m in result
+    ]
+    sys.stdout.write(table(rows, "<>>><"))
+
+
+def local_time(ms):
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ms / 1000))
 
 
 def number(value, sign=False):
