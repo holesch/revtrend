@@ -337,14 +337,20 @@ def format_comparison(result):
                 number(r["delta_pct"], sign=True),
             )
         )
-    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    return "\n".join(lines) + "\n" + table(rows, "<>>>>")
+
+
+def table(rows, align):
+    """Aligned columns, `align` has one '<' (left) or '>' (right) per column."""
+    widths = [max(len(row[i]) for row in rows) for i in range(len(align))]
+    lines = []
     for row in rows:
-        cells = [row[0].ljust(widths[0])]
-        cells += [
-            cell.rjust(width) for cell, width in zip(row[1:], widths[1:], strict=True)
+        cells = [
+            cell.ljust(width) if a == "<" else cell.rjust(width)
+            for cell, width, a in zip(row, widths, align, strict=True)
         ]
-        lines.append("  ".join(cells).rstrip())
-    return "\n".join(lines) + "\n"
+        lines.append("  ".join(cells).rstrip() + "\n")
+    return "".join(lines)
 
 
 def number(value, sign=False):
