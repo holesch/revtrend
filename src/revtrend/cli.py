@@ -42,13 +42,16 @@ def main(argv=None, http=None):
     commands = parser.add_subparsers(dest="command", required=True)
     login_parser = commands.add_parser("login", help="log in with the browser")
     login_parser.set_defaults(func=login)
-    push_parser = commands.add_parser(
-        "push", help="push measurements of one run for a commit"
-    )
-    push_parser.add_argument(
+    project_parser = argparse.ArgumentParser(add_help=False)
+    project_parser.add_argument(
         "-p",
         "--project",
         help="default: the project whose remote URL matches a git remote",
+    )
+    push_parser = commands.add_parser(
+        "push",
+        parents=[project_parser],
+        help="push measurements of one run for a commit",
     )
     push_parser.add_argument(
         "--sha", default="HEAD", help="commit, resolved in the current repository"
@@ -69,12 +72,9 @@ def main(argv=None, http=None):
     )
     push_parser.set_defaults(func=push)
     compare_parser = commands.add_parser(
-        "compare", help="compare a commit with its merge base on a base ref"
-    )
-    compare_parser.add_argument(
-        "-p",
-        "--project",
-        help="default: the project whose remote URL matches a git remote",
+        "compare",
+        parents=[project_parser],
+        help="compare a commit with its merge base on a base ref",
     )
     compare_parser.add_argument(
         "--head", default="HEAD", help="commit, resolved in the current repository"
