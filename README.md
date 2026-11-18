@@ -84,6 +84,16 @@ revtrend runs [--sha REV] [--limit N] [--json]
 values, and when it was last pushed. `runs` lists the latest runs, optionally
 only those of one commit, with their run ids.
 
+### Deleting
+
+```
+revtrend delete (--run-id ID | --metric NAME) [--yes]
+```
+
+deletes all measurements of a run, e.g. a broken build, or of a metric, e.g.
+after renaming it. It asks for confirmation unless `--yes` is given, and needs
+the `admin` role.
+
 ## In CI
 
 The CLI reads its settings from the environment, so a CI job only needs three

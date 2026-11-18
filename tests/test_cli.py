@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import json
 import secrets
 import stat
@@ -489,3 +490,79 @@ def test_runs_empty(run, capsys):
     capsys.readouterr()
     run("runs", "--project", "test")
     assert capsys.readouterr().err == "no runs in project test\n"
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def run_ids(client):
+    return sorted(
+        r["run_id"]
+        for r in client.get(
+            "/api/v1/projects/test/runs", headers=client.as_user("reader")
+        ).json()
+    )
+
+
+@pytest.fixture
+def two_runs(client, graph, auth_server):
+    auth_server.roles = ["admin", "reader"]
+    conftest.push(client, graph["c3"], 1, run_id="good")
+    conftest.push(client, graph["c3"], 2, run_id="bad")
+    conftest.push(client, graph["c3"], 3, run_id="bad", metric="image.files")
+
+
+def test_delete_run(run, client, two_runs, capsys):
+    run("login")
+    capsys.readouterr()
+    run("delete", "--project", "test", "--run-id", "bad", "--yes")
+    assert capsys.readouterr().out == "deleted 2 measurements\n"
+    assert run_ids(client) == ["good"]
+
+
+def test_delete_metric_confirmed(run, client, two_runs, monkeypatch, capsys):
+    run("login")
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", Terminal("y\n"))
+    run("delete", "--project", "test", "--metric", "image.files")
+    out, err = capsys.readouterr()
+    assert (
+        err == "Delete all measurements of metric 'image.files' in project test? [y/N] "
+    )
+    assert out == "deleted 1 measurements\n"
+
+
+def test_delete_declined(run, client, two_runs, monkeypatch, capsys):
+    run("login")
+    monkeypatch.setattr("sys.stdin", Terminal("\n"))
+    with pytest.raises(SystemExit):
+        run("delete", "--project", "test", "--run-id", "bad")
+    assert capsys.readouterr().err.endswith("revtrend: aborted\n")
+    assert run_ids(client) == ["bad", "good"]
+
+
+def test_delete_needs_terminal(run, client, two_runs, monkeypatch, capsys):
+    run("login")
+    monkeypatch.setattr("sys.stdin", io.StringIO("y\n"))
+    with pytest.raises(SystemExit):
+        run("delete", "--project", "test", "--run-id", "bad")
+    assert "pass --yes" in capsys.readouterr().err
+    assert run_ids(client) == ["bad", "good"]
+
+
+def test_delete_requires_admin(run, client, two_runs, auth_server, capsys):
+    auth_server.roles = ["writer", "reader"]
+    run("login")
+    with pytest.raises(SystemExit):
+        run("delete", "--project", "test", "--run-id", "bad", "--yes")
+    assert "(403)" in capsys.readouterr().err
+    assert run_ids(client) == ["bad", "good"]
+
+
+@pytest.mark.parametrize("args", [[], ["--run-id", "bad", "--metric", "image.files"]])
+def test_delete_needs_one_filter(run, args, capsys):
+    with pytest.raises(SystemExit):
+        run("delete", "--project", "test", "--yes", *args)
+    assert "--run-id" in capsys.readouterr().err

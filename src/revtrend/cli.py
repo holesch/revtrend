@@ -112,6 +112,18 @@ def main(argv=None, http=None):
     )
     runs_parser.add_argument("--json", action="store_true", help="raw response")
     runs_parser.set_defaults(func=list_runs)
+    delete_parser = commands.add_parser(
+        "delete",
+        parents=[project_parser],
+        help="delete the measurements of a run or metric (admin)",
+    )
+    delete_what = delete_parser.add_mutually_exclusive_group(required=True)
+    delete_what.add_argument("--run-id", help="all measurements of this run")
+    delete_what.add_argument("--metric", help="all measurements of this metric")
+    delete_parser.add_argument(
+        "-y", "--yes", action="store_true", help="don't ask for confirmation"
+    )
+    delete_parser.set_defaults(func=delete)
     args = parser.parse_args(argv)
     if not args.url:
         parser.error("--url or REVTREND_URL required")
@@ -417,6 +429,28 @@ def list_runs(args, http):
         for r in result
     ]
     sys.stdout.write(table(rows, "<<<><<"))
+
+
+def delete(args, http):
+    if args.project is None:
+        args.project = infer_project(http, args.url)
+    if args.run_id is not None:
+        what, params = f"run {args.run_id!r}", {"run_id": args.run_id}
+    else:
+        what, params = f"metric {args.metric!r}", {"metric": args.metric}
+    if not args.yes:
+        confirm(f"Delete all measurements of {what} in project {args.project}?")
+    result = api_request(http, args, "DELETE", "measurements", params=params)
+    sys.stdout.write(f"deleted {result['deleted']} measurements\n")
+
+
+def confirm(question):
+    if not sys.stdin.isatty():
+        raise CliError("not a terminal, pass --yes to delete without confirmation")
+    sys.stderr.write(f"{question} [y/N] ")
+    sys.stderr.flush()
+    if sys.stdin.readline().strip().lower() not in {"y", "yes"}:
+        raise CliError("aborted")
 
 
 def local_time(ms):
